@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>FeedLite - 极简 AI 阅读器</title>
+    <meta name="description" content="FeedLite - AI 驱动的轻量级个人 RSS 信息流阅读器">
+    <link rel="stylesheet" href="./style.css">
+    <script src="https://unpkg.com/lucide@latest"></script>
+</head>
+
+<body>
+    <!-- 登录拦截层 -->
+    <div id="login-overlay" class="login-overlay">
+        <div class="login-box">
+            <div class="login-header">
+                <h2>Feedlite 🔐</h2>
+                <p>请登录以访问您的私人信息流</p>
+            </div>
+            <form id="login-form">
+                <input type="text" id="login-user" placeholder="用户名 (admin)" required autocomplete="username">
+                <input type="password" id="login-pass" placeholder="密码" required autocomplete="current-password">
+                <button type="submit" class="btn-primary">进入</button>
+                <div id="login-error" class="error-msg"></div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 顶部导航 -->
+    <header class="main-header">
+        <div class="header-content">
+            <h1 class="logo" id="logo-refresh" title="点击刷新">FeedLite</h1>
+            <div class="header-right">
+                <div class="search-expandable" id="header-search">
+                    <input type="text" id="search-input" placeholder="搜索文章..." class="search-input">
+                </div>
+                <div class="actions" id="header-actions">
+                    <button id="search-toggle" title="搜索"><i data-lucide="search"></i></button>
+                    <button id="nav-subs" title="订阅源管理"><i data-lucide="globe"></i></button>
+                    <button id="nav-profile" title="AI 画像设置"><i data-lucide="bot"></i></button>
+                    <button id="theme-toggle" title="切换主题"><i data-lucide="moon"></i></button>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- 主信息流容器 -->
+    <main class="feed-container" id="feed-stream">
+        <!-- 下拉刷新指示器 -->
+        <div id="pull-to-refresh" class="pull-indicator">
+            <div class="spinner"></div>
+            <span>下拉刷新...</span>
+        </div>
+
+        <!-- 文章卡片由 app.js 动态渲染 -->
+
+        <!-- 加载动画 -->
+        <div class="loading-trigger" id="loading">加载中...</div>
+    </main>
+
+    <!-- 弹窗：订阅管理中心 -->
+    <div id="modal-subs" class="modal">
+        <div class="modal-content wide-modal">
+            <div class="modal-header">
+                <div class="modal-tabs">
+                    <button class="tab-btn active" data-tab="tab-add"><i data-lucide="bookmark-plus"></i></button>
+                    <button class="tab-btn" data-tab="tab-list"><i data-lucide="clipboard-list"></i></button>
+                </div>
+                <span class="close-modal">&times;</span>
+            </div>
+
+            <!-- 标签页 1: 添加新源 -->
+            <div id="tab-add" class="tab-pane active">
+                <div class="subscription-list">
+                    <div class="sub-item-card add-card">
+                        <div class="sub-item-info">
+                            <input type="text" placeholder="输入 RSS URL (https://...)" id="new-sub-url"
+                                class="minimal-input">
+                        </div>
+                        <div class="sub-item-actions">
+                            <button id="preview-new-btn" class="btn-primary" title="获取订阅源内容与详情"><i
+                                    data-lucide="eye"></i></button>
+                        </div>
+                    </div>
+                    <!-- 动态预览区域 (添加时) -->
+                    <div id="preview-container" class="preview-area hidden">
+                        <div class="preview-header">
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <span class="preview-title" id="preview-title-text"
+                                    style="font-weight:600; font-size:0.9rem;">内容预览</span>
+                            </div>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <div class="custom-select-wrapper" id="custom-category-dropdown">
+                                    <div class="custom-select-trigger">
+                                        <span class="custom-select-text">选择分类</span>
+                                        <i class="custom-select-icon" data-lucide="chevron-down"></i>
+                                    </div>
+                                    <ul class="custom-select-options">
+                                        <li data-value="1">资讯</li>
+                                        <li data-value="2">科技</li>
+                                        <li data-value="3">人文</li>
+                                        <li data-value="4">设计</li>
+                                        <li data-value="5">综合</li>
+                                    </ul>
+                                    <input type="hidden" id="new-sub-category" value="" required>
+                                </div>
+                                <button id="confirm-add-btn" class="btn-primary round-btn" title="确认添加此订阅"><i
+                                        data-lucide="plus"></i></button>
+                                <button class="btn-fold round-btn" title="收起预览"><i
+                                        data-lucide="chevron-up"></i></button>
+                            </div>
+                        </div>
+                        <div class="preview-list"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 标签页 2: 我的订阅 -->
+            <div id="tab-list" class="tab-pane">
+                <div class="subscription-list" id="my-subs-list">
+                    <!-- 订阅列表将由 JS 动态渲染 -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 弹窗：AI 智能画像 -->
+    <div id="modal-profile" class="modal">
+        <div class="modal-content wide-modal">
+            <div class="modal-header">
+                <h3>AI 智能画像</h3>
+                <span class="close-modal">&times;</span>
+            </div>
+            <div class="modal-scroll-area">
+                <!-- 标签卡片 -->
+                <div class="sub-item-card">
+                    <div class="sub-item-info">
+                        <span class="sub-name">核心偏好标签 (Tags)</span>
+                        <div class="tags-container" id="tags-list">
+                            <span class="tag">人工智能 <small>&times;</small></span>
+                            <span class="tag">开源硬件 <small>&times;</small></span>
+                            <input type="text" placeholder="➕" class="tag-input-inline">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Prompt 卡片 -->
+                <div class="sub-item-card prompt-card-container">
+                    <div class="sub-item-info">
+                        <span class="sub-name">动态 System Prompt</span>
+                        <textarea id="system-prompt-editor" rows="5"
+                            class="minimal-textarea">你是一个专业的新闻筛选助手。用户关注前沿技术和局势变动...</textarea>
+                    </div>
+                    <div class="card-inner-actions">
+                        <button id="refresh-profile" title="重新生成"><i data-lucide="refresh-cw"></i></button>
+                        <button id="save-profile" title="保存设置" class="btn-primary-icon"><i
+                                data-lucide="save"></i></button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button id="back-to-top" title="回到顶部"><i data-lucide="arrow-up"></i></button>
+    <script src="./app.js" charset="UTF-8"></script>
+</body>
+
+</html>

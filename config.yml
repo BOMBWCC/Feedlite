@@ -1,0 +1,24 @@
+# Feedlite 静态配置文件
+
+# 抓取设置
+fetch:
+  interval_hours: 12        # 定时抓取间隔
+  batch_size: 50            # AI 批处理每组篇数
+  retention_hours: 12       # 历史遗弃窗口（丢弃早于此时间的文章）
+
+# 网络代理 (针对部分 RSS 源或 AI API)
+# 支持 http://user:pass@host:port 或 http://host:port
+proxy:
+  enable: false
+  http_proxy: ""
+  https_proxy: ""
+
+# 系统安全
+security:
+  jwt_secret: "generate-a-strong-secret-here-for-production"
+  access_token_expire_days: 7
+
+# AI 模型配置 (默认占位，可在数据库中动态修改)
+ai:
+  default_provider: "openai"
+  default_model: "gpt-3.5-turbo"

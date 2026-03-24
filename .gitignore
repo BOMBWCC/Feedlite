@@ -1,0 +1,61 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual Environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Database
+data/*.db
+data/*.db-wal
+data/*.db-shm
+*.sqlite3
+*.db
+
+# OS specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDEs / Editors
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.gemini/
+
+# Logs & Output
+logs/
+*.log
+*.tmp
+*.bak
+
+# Testing & Development
+tests/
+scripts/
+.pytest_cache/
+.coverage
+htmlcov/
+pytest*.txt
+
+# Project Documentation / Memory
+memory-bank/
+
+# AI Assistants
+.cursor/
+.cursorrules
+
+data/

@@ -1,0 +1,14 @@
+version:
+
+services:
+  feedlite:
+    container_name: feedlite
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/app/data
+      - ./config.yml:/app/config.yml
+    env_file:
+      - .env
+    restart: unless-stopped

@@ -1,0 +1,23 @@
+# Core Web Framework
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+pydantic-settings
+python-multipart
+
+# Database & ORM
+SQLAlchemy>=2.0.0
+aiosqlite>=0.18.0
+
+# Network & AI (with SOCKS5 support)
+requests[socks]
+PySocks
+
+# RSS Parsing & Task Scheduling
+feedparser>=6.0.0
+APScheduler>=3.10.0
+PyYAML
+
+# Security & Auth
+bcrypt
+PyJWT
+python-dotenv
