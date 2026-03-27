@@ -316,7 +316,10 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
         return summary
 
     if not ai_config.get("api_key"):
-        summary["error"] = "AI API Key 未配置，跳过打分"
+        summary["error"] = (
+            f"AI API Key 未配置，跳过打分 "
+            f"(角色={ai_config.get('role')}, 提供商={ai_config.get('provider')}, 模型={ai_config.get('model')})"
+        )
         logger.warning(summary["error"])
         return summary
 
@@ -369,7 +372,7 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
             await db.commit()
 
         except Exception as e:
-            logger.error(f"批次打分失败 (batch {i // batch_size + 1}): {e}")
+            logger.exception(f"批次打分失败 (第 {i // batch_size + 1} 批): {e}")
             summary["error"] = str(e)
             # 继续处理下一批，不中断
 

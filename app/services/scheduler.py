@@ -38,16 +38,29 @@ async def _sync_job():
 
     logger.info("⏰ 定时同步任务开始...")
 
-    async with AsyncSessionLocal() as db:
-        fetch_summary = await sync_all_feeds(db)
-        score_summary = await score_unscored_articles(db)
+    try:
+        async with AsyncSessionLocal() as db:
+            # RSS 抓取
+            logger.info("正在执行 RSS 抓取流程...")
+            fetch_summary = await sync_all_feeds(db)
+            
+            # AI 打分
+            logger.info("正在执行 AI 打分流程...")
+            score_summary = await score_unscored_articles(db)
 
-    logger.info(
-        f"⏰ 定时同步完成: "
-        f"抓取 {fetch_summary['total_fetched']} 篇, "
-        f"新增 {fetch_summary['total_inserted']} 篇, "
-        f"评分 {score_summary.get('scored', 0)} 篇"
-    )
+        if score_summary.get("error"):
+            logger.error(f"❌ 定时 AI 打分遇到问题: {score_summary['error']}")
+
+        logger.info(
+            f"⏰ 定时同步完成: "
+            f"抓取 {fetch_summary['total_fetched']} 篇, "
+            f"新增 {fetch_summary['total_inserted']} 篇, "
+            f"评分 {score_summary.get('scored', 0)} 篇, "
+            f"跳过 {score_summary.get('skipped', 0)} 篇"
+        )
+    except Exception:
+        # 这里使用 logger.exception 会把整个 traceback 打印出来
+        logger.exception("❌ 定时同步任务执行过程发生非预期异常")
 
 
 def start_scheduler():
