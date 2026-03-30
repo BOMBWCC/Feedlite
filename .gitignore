@@ -52,10 +52,8 @@ htmlcov/
 pytest*.txt
 
 # Project Documentation / Memory
-memory-bank/
+# memory-bank/
 
 # AI Assistants
 .cursor/
 .cursorrules
-
-data/
