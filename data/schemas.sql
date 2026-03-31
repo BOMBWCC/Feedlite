@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS articles (
     published TEXT NOT NULL,
     ai_score INTEGER DEFAULT 0,
     feedback INTEGER DEFAULT 0,
+    feedback_updated_at TEXT,
     status TEXT DEFAULT 'active',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
     FOREIGN KEY (feed_id) REFERENCES feeds (id)

@@ -37,6 +37,7 @@ class Article(Base):
     published = Column(Text, nullable=False)
     ai_score = Column(Integer, default=0)
     feedback = Column(Integer, default=0)
+    feedback_updated_at = Column(Text)
     status = Column(Text, default="active")
     created_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat())
     

@@ -3,6 +3,19 @@ console.log("🚀 FeedLite JS Starting...");
 document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ DOM Content Loaded");
 
+    // 后端异常时可能返回纯文本 500，而不是 JSON；这里统一兜底，避免前端再报 Unexpected token。
+    const readApiResponse = async (res) => {
+        const contentType = res.headers.get('content-type') || '';
+        if (contentType.includes('application/json')) {
+            return await res.json();
+        }
+
+        const text = await res.text();
+        return {
+            detail: text || `HTTP ${res.status}`
+        };
+    };
+
     // --- API Fetch Wrapper (Auth Interceptor) ---
     const apiFetch = async (url, options = {}) => {
         const token = localStorage.getItem('feedlite_token');
@@ -196,7 +209,7 @@ document.addEventListener('DOMContentLoaded', () => {
             lucide.createIcons();
             try {
                 const res = await apiFetch(`/api/sources/preview?url=${encodeURIComponent(url)}`, { method: 'POST' });
-                const data = await res.json();
+                const data = await readApiResponse(res);
                 if (!res.ok) throw new Error(data.detail || '预览失败');
 
                 lastPreviewData = data;
@@ -230,7 +243,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const feedTitle = lastPreviewData?.feed_title || '';
                 const category = categorySelect.value;
                 const res = await apiFetch(`/api/sources/?url=${encodeURIComponent(url)}&title=${encodeURIComponent(feedTitle)}&category=${category}`, { method: 'POST' });
-                const data = await res.json();
+                const data = await readApiResponse(res);
                 if (!res.ok) throw new Error(data.detail || '添加失败');
 
                 alert('✅ 订阅源添加成功！');
@@ -329,7 +342,7 @@ document.addEventListener('DOMContentLoaded', () => {
         lucide.createIcons();
         try {
             const res = await apiFetch(`/api/sources/preview?url=${encodeURIComponent(url)}`, { method: 'POST' });
-            const data = await res.json();
+            const data = await readApiResponse(res);
             if (!res.ok) throw new Error(data.detail || '预览探测失败');
 
             previewBox.classList.remove('hidden');
@@ -760,32 +773,48 @@ document.addEventListener('DOMContentLoaded', () => {
         };
     }
 
-    // 保存画像
+    // 保存 Tag（base_prompt 仅允许 AI 自动生成）
     if (saveProfileBtn) {
         saveProfileBtn.addEventListener('click', async () => {
             const tags = Array.from(tagsList.querySelectorAll('.tag'))
                 .map(el => el.textContent.replace('×', '').trim())
                 .filter(Boolean);
-
-            const body = {
-                active_tags: tags.join(','),
-                base_prompt: promptEditor ? promptEditor.value.trim() : '',
-            };
+            let currentTags = [];
+            try {
+                const currentRes = await apiFetch('/api/profile/');
+                const currentData = await currentRes.json();
+                currentTags = currentData.active_tags ? currentData.active_tags.split(',').map(t => t.trim()).filter(Boolean) : [];
+            } catch (e) {
+                alert('读取当前标签失败: ' + e.message);
+                return;
+            }
 
             saveProfileBtn.innerHTML = '<i data-lucide="loader-circle" class="lucide-spin"></i>';
             lucide.createIcons();
             try {
-                const res = await apiFetch('/api/profile/', {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(body),
-                });
-                const data = await res.json();
-                if (res.ok) {
-                    alert('✅ 画像已保存');
-                } else {
-                    alert('保存失败: ' + (data.detail || data.message));
+                const tagsToAdd = tags.filter(tag => !currentTags.includes(tag));
+                const tagsToDelete = currentTags.filter(tag => !tags.includes(tag));
+
+                for (const tag of tagsToAdd) {
+                    const res = await apiFetch('/api/profile/tags', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ tag }),
+                    });
+                    const data = await readApiResponse(res);
+                    if (!res.ok) throw new Error(data.detail || data.message || '新增标签失败');
                 }
+
+                for (const tag of tagsToDelete) {
+                    const res = await apiFetch(`/api/profile/tags?tag=${encodeURIComponent(tag)}`, {
+                        method: 'DELETE',
+                    });
+                    const data = await readApiResponse(res);
+                    if (!res.ok) throw new Error(data.detail || data.message || '删除标签失败');
+                }
+
+                alert('✅ 标签已保存');
+                await loadProfile();
             } catch (e) {
                 alert('保存失败: ' + e.message);
             } finally {
@@ -794,5 +823,6 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         });
     }
+
     lucide.createIcons();
 });

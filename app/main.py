@@ -53,11 +53,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# 本地排障时可通过 DISABLE_AUTH=true 临时关闭接口鉴权，避免每次手动取 token。
+auth_dependencies = []
+if os.getenv("DISABLE_AUTH", "").lower() not in {"1", "true", "yes", "on"}:
+    auth_dependencies = [Depends(verify_token)]
+
 # --- 注册 API 路由 ---
 app.include_router(auth.router)
-app.include_router(feeds.router, dependencies=[Depends(verify_token)])
-app.include_router(sources.router, dependencies=[Depends(verify_token)])
-app.include_router(profile.router, dependencies=[Depends(verify_token)])
+app.include_router(feeds.router, dependencies=auth_dependencies)
+app.include_router(sources.router, dependencies=auth_dependencies)
+app.include_router(profile.router, dependencies=auth_dependencies)
 
 
 # --- 健康检查端点 ---

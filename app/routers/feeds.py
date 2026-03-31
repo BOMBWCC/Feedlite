@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, text
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.models import Article, Feed
@@ -24,6 +25,7 @@ async def get_articles(
             Article.published,
             Article.ai_score,
             Article.feedback,
+            Article.feedback_updated_at,
             Article.created_at,
             Feed.category,
         )
@@ -46,6 +48,7 @@ async def get_articles(
             "published": row.published,
             "ai_score": row.ai_score,
             "feedback": row.feedback,
+            "feedback_updated_at": row.feedback_updated_at,
             "created_at": row.created_at,
             "category": row.category,
         }
@@ -63,7 +66,7 @@ async def search_articles(
     # 使用原始 SQL：FTS5 MATCH 查询 → 通过 rowid 关联主表 → JOIN feeds 获取分类
     fts_sql = text("""
         SELECT a.id, a.title, a.link, a.description, a.published,
-               a.ai_score, a.feedback, a.created_at, f.category
+               a.ai_score, a.feedback, a.feedback_updated_at, a.created_at, f.category
         FROM articles_fts fts
         JOIN articles a ON a.id = fts.rowid
         JOIN feeds f ON a.feed_id = f.id
@@ -85,6 +88,7 @@ async def search_articles(
             "published": row.published,
             "ai_score": row.ai_score,
             "feedback": row.feedback,
+            "feedback_updated_at": row.feedback_updated_at,
             "created_at": row.created_at,
             "category": row.category,
         }
@@ -99,14 +103,20 @@ async def update_feedback(
     db: AsyncSession = Depends(get_db),
 ):
     """更新文章反馈（1=感兴趣，-1=不感兴趣，0=取消）"""
+    feedback_time = datetime.now(timezone.utc).isoformat() if type in (1, -1) else None
     stmt = (
         update(Article)
         .where(Article.id == article_id)
-        .values(feedback=type)
+        .values(feedback=type, feedback_updated_at=feedback_time)
     )
     await db.execute(stmt)
     await db.commit()
-    return {"status": "ok", "article_id": article_id, "feedback": type}
+    return {
+        "status": "ok",
+        "article_id": article_id,
+        "feedback": type,
+        "feedback_updated_at": feedback_time,
+    }
 
 
 @router.post("/feeds/sync")

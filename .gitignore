@@ -44,15 +44,14 @@ logs/
 *.bak
 
 # Testing & Development
-tests/
 scripts/
 .pytest_cache/
 .coverage
 htmlcov/
 pytest*.txt
 
-# Project Documentation / Memory
-# memory-bank/
+Project Documentation / Memory
+memory-bank/
 
 # AI Assistants
 .cursor/

@@ -54,45 +54,61 @@ async def init_db():
         await db.executescript(schema_sql)
         await db.commit()
 
-        # 2. 注入环境变量中的 AI 配置 (如果表为空)
-        cursor = await db.execute("SELECT COUNT(*) FROM ai_models")
-        count = (await cursor.fetchone())[0]
-        if count == 0:
-            models_to_insert = []
-            now = datetime.now(timezone.utc).isoformat()
-            
-            # Scorer 配置
-            if os.getenv("SCORER_API_KEY"):
-                provider = os.getenv("SCORER_PROVIDER", "openai").lower()
-                if provider == "google": provider = "gemini"
-                models_to_insert.append((
-                    "scorer", 
-                    provider,
-                    os.getenv("SCORER_MODEL", "gpt-4o-mini"),
-                    os.getenv("SCORER_API_BASE", "https://api.openai.com/v1"),
-                    os.getenv("SCORER_API_KEY"),
-                    now
-                ))
-            
-            # Profiler 配置
-            if os.getenv("PROFILER_API_KEY"):
-                provider = os.getenv("PROFILER_PROVIDER", "openai").lower()
-                if provider == "google": provider = "gemini"
-                models_to_insert.append((
-                    "profiler",
-                    provider,
-                    os.getenv("PROFILER_MODEL", "gpt-4o-mini"),
-                    os.getenv("PROFILER_API_BASE", "https://api.openai.com/v1"),
-                    os.getenv("PROFILER_API_KEY"),
-                    now
-                ))
+        # 兼容历史数据库：为 articles 表补充反馈更新时间字段，便于按“最近一周反馈”生成画像。
+        cursor = await db.execute("PRAGMA table_info(articles)")
+        article_columns = {row[1] for row in await cursor.fetchall()}
+        if "feedback_updated_at" not in article_columns:
+            await db.execute("ALTER TABLE articles ADD COLUMN feedback_updated_at TEXT")
+            await db.commit()
+            print("✅ Added missing column: articles.feedback_updated_at")
 
-            if models_to_insert:
-                await db.executemany(
-                    "INSERT INTO ai_models (role, provider, model_name, api_base, api_key, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-                    models_to_insert
-                )
-                print(f"✅ Seeded {len(models_to_insert)} AI models from ENV.")
+        # 2. 启动时将 .env 中的 AI 配置按角色写入数据库，确保重启后数据库与当前环境一致。
+        models_to_upsert = []
+        now = datetime.now(timezone.utc).isoformat()
+
+        # Scorer 配置
+        if os.getenv("SCORER_API_KEY"):
+            provider = os.getenv("SCORER_PROVIDER", "openai").lower()
+            if provider == "google":
+                provider = "gemini"
+            models_to_upsert.append((
+                "scorer",
+                provider,
+                os.getenv("SCORER_MODEL", "gpt-4o-mini"),
+                os.getenv("SCORER_API_BASE", "https://api.openai.com/v1"),
+                os.getenv("SCORER_API_KEY"),
+                now
+            ))
+
+        # Profiler 配置
+        if os.getenv("PROFILER_API_KEY"):
+            provider = os.getenv("PROFILER_PROVIDER", "openai").lower()
+            if provider == "google":
+                provider = "gemini"
+            models_to_upsert.append((
+                "profiler",
+                provider,
+                os.getenv("PROFILER_MODEL", "gpt-4o-mini"),
+                os.getenv("PROFILER_API_BASE", "https://api.openai.com/v1"),
+                os.getenv("PROFILER_API_KEY"),
+                now
+            ))
+
+        if models_to_upsert:
+            await db.executemany(
+                """
+                INSERT INTO ai_models (role, provider, model_name, api_base, api_key, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(role) DO UPDATE SET
+                    provider = excluded.provider,
+                    model_name = excluded.model_name,
+                    api_base = excluded.api_base,
+                    api_key = excluded.api_key,
+                    updated_at = excluded.updated_at
+                """,
+                models_to_upsert
+            )
+            print(f"✅ Upserted {len(models_to_upsert)} AI models from ENV.")
 
         # 3. 注入默认管理员 (如果表为空)
         cursor = await db.execute("SELECT COUNT(*) FROM users")

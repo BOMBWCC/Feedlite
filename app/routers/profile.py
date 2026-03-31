@@ -1,28 +1,45 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
 from app.database import get_db
 from app.models import User
+from app.services.profiler import generate_user_profile
 
 router = APIRouter(prefix="/api/profile", tags=["profile"])
 
 
-class ProfileUpdate(BaseModel):
-    active_tags: str = ""
-    base_prompt: str = ""
+class TagPayload(BaseModel):
+    tag: str
+
+
+def _parse_tags(active_tags: str) -> list[str]:
+    return [tag.strip() for tag in (active_tags or "").split(",") if tag.strip()]
+
+
+def _serialize_tags(tags: list[str]) -> str:
+    return ",".join(tags)
+
+
+async def _get_or_create_user(db: AsyncSession) -> User:
+    stmt = select(User).limit(1)
+    result = await db.execute(stmt)
+    user = result.scalar_one_or_none()
+    if user:
+        return user
+
+    user = User(username="default", password_hash="", active_tags="", base_prompt="")
+    db.add(user)
+    await db.commit()
+    await db.refresh(user)
+    return user
 
 
 @router.get("/")
 async def get_profile(db: AsyncSession = Depends(get_db)):
     """获取当前用户的画像（Tags + System Prompt）"""
-    stmt = select(User).limit(1)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
-
-    if not user:
-        return {"active_tags": "", "base_prompt": ""}
+    user = await _get_or_create_user(db)
 
     return {
         "active_tags": user.active_tags or "",
@@ -30,32 +47,45 @@ async def get_profile(db: AsyncSession = Depends(get_db)):
     }
 
 
-@router.put("/")
-async def update_profile(
-    body: ProfileUpdate,
-    db: AsyncSession = Depends(get_db),
-):
-    """更新用户画像（Tags + System Prompt）"""
-    stmt = select(User).limit(1)
-    result = await db.execute(stmt)
-    user = result.scalar_one_or_none()
+@router.post("/tags")
+async def add_tag(body: TagPayload, db: AsyncSession = Depends(get_db)):
+    """新增单个 Tag。"""
+    tag = body.tag.strip()
+    if not tag:
+        raise HTTPException(status_code=400, detail="Tag 不能为空")
 
-    if not user:
-        # 自动创建默认用户
-        user = User(
-            username="default",
-            password_hash="",
-            active_tags=body.active_tags,
-            base_prompt=body.base_prompt,
+    user = await _get_or_create_user(db)
+    tags = _parse_tags(user.active_tags)
+    if tag not in tags:
+        tags.append(tag)
+        await db.execute(
+            update(User)
+            .where(User.id == user.id)
+            .values(active_tags=_serialize_tags(tags))
         )
-        db.add(user)
         await db.commit()
-        return {"status": "ok", "message": "画像已创建"}
+
+    return {"status": "ok", "active_tags": _serialize_tags(tags)}
+
+
+@router.delete("/tags")
+async def delete_tag(tag: str = Query(..., min_length=1), db: AsyncSession = Depends(get_db)):
+    """删除单个 Tag。"""
+    target = tag.strip()
+    user = await _get_or_create_user(db)
+    tags = [item for item in _parse_tags(user.active_tags) if item != target]
 
     await db.execute(
         update(User)
         .where(User.id == user.id)
-        .values(active_tags=body.active_tags, base_prompt=body.base_prompt)
+        .values(active_tags=_serialize_tags(tags))
     )
     await db.commit()
-    return {"status": "ok", "message": "画像已更新"}
+    return {"status": "ok", "active_tags": _serialize_tags(tags)}
+
+
+@router.post("/generate")
+async def generate_profile(db: AsyncSession = Depends(get_db)):
+    """手动触发一次用户画像生成。"""
+    summary = await generate_user_profile(db)
+    return {"status": "ok", "summary": summary}

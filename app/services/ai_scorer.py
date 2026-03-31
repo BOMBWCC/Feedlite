@@ -22,6 +22,22 @@ logger = logging.getLogger("feedlite.ai_scorer")
 
 _config_cache = None
 
+
+def _looks_like_placeholder(value: str) -> bool:
+    """识别示例配置里的占位值，避免它们错误覆盖真实环境变量。"""
+    if not value:
+        return True
+
+    normalized = value.strip().lower()
+    placeholder_markers = (
+        "your_",
+        "_here",
+        "sk-xxxx",
+        "example",
+        "placeholder",
+    )
+    return any(marker in normalized for marker in placeholder_markers)
+
 def _load_config() -> dict:
     """从 config.yml 加载静态配置（带缓存）"""
     global _config_cache
@@ -43,7 +59,7 @@ def _load_config() -> dict:
 async def _get_ai_config(db: AsyncSession, role: str = "scorer") -> dict:
     """
     合并 config.yml、环境变量和数据库 ai_models 中的 AI 配置。
-    数据库 > 环境变量 > 默认文件配置。
+    默认情况下数据库可覆盖环境变量；但若数据库中仍是示例占位值，则回退到环境变量。
     """
     from app.models import AiModel
     file_cfg = _load_config()
@@ -59,10 +75,16 @@ async def _get_ai_config(db: AsyncSession, role: str = "scorer") -> dict:
 
     # 1. 从环境变量获取 (.env 注入)
     prefix = role.upper()
-    if os.getenv(f"{prefix}_PROVIDER"): ai_cfg["provider"] = os.getenv(f"{prefix}_PROVIDER")
-    if os.getenv(f"{prefix}_MODEL"): ai_cfg["model"] = os.getenv(f"{prefix}_MODEL")
-    if os.getenv(f"{prefix}_API_KEY"): ai_cfg["api_key"] = os.getenv(f"{prefix}_API_KEY")
-    if os.getenv(f"{prefix}_API_BASE"): ai_cfg["api_base"] = os.getenv(f"{prefix}_API_BASE")
+    env_cfg = {
+        "provider": os.getenv(f"{prefix}_PROVIDER", ""),
+        "model": os.getenv(f"{prefix}_MODEL", ""),
+        "api_key": os.getenv(f"{prefix}_API_KEY", ""),
+        "api_base": os.getenv(f"{prefix}_API_BASE", ""),
+    }
+    if env_cfg["provider"]: ai_cfg["provider"] = env_cfg["provider"]
+    if env_cfg["model"]: ai_cfg["model"] = env_cfg["model"]
+    if env_cfg["api_key"]: ai_cfg["api_key"] = env_cfg["api_key"]
+    if env_cfg["api_base"]: ai_cfg["api_base"] = env_cfg["api_base"]
 
     # 2. 从 ai_models 表读取覆盖值 (热更新)
     stmt = select(AiModel).where(AiModel.role == role)
@@ -74,6 +96,17 @@ async def _get_ai_config(db: AsyncSession, role: str = "scorer") -> dict:
         if model_row.model_name: ai_cfg["model"] = model_row.model_name
         if model_row.api_key: ai_cfg["api_key"] = model_row.api_key
         if model_row.api_base: ai_cfg["api_base"] = model_row.api_base
+
+        # 若数据库里仍是示例占位值，则回退到 .env 中的真实配置，避免 AI 调用一直失败。
+        if _looks_like_placeholder(model_row.api_key) and env_cfg["api_key"]:
+            if env_cfg["provider"]: ai_cfg["provider"] = env_cfg["provider"]
+            if env_cfg["model"]: ai_cfg["model"] = env_cfg["model"]
+            if env_cfg["api_key"]: ai_cfg["api_key"] = env_cfg["api_key"]
+            if env_cfg["api_base"]: ai_cfg["api_base"] = env_cfg["api_base"]
+            logger.warning(
+                "ai_models.%s 使用了占位 API Key，已回退到环境变量中的 AI 配置。",
+                role,
+            )
 
     # 代理配置：仅供 AI 请求使用的专属代理，避免干扰全局 RSS 抓取
     proxy_cfg = file_cfg.get("proxy", {})
@@ -118,6 +151,17 @@ def _build_scoring_prompt(articles: list[dict], profile: dict) -> list[dict]:
 
     if tags:
         system_prompt += f"\n\n用户关注的核心标签：{tags}"
+
+    priority_rules = """
+
+优先级规则：
+1. 用户手工维护的标签（Tag）优先级最高，必须优先满足。
+2. 用户画像用于补充长期兴趣与排斥方向，优先级次于 Tag。
+3. 文章评分应建立在 Tag 与用户画像都被满足的前提下，再判断相关性与重要性。
+4. 不要只根据新闻热度打高分；若与 Tag 或用户画像冲突，应显著降分。
+""".rstrip()
+
+    system_prompt += priority_rules
 
     system_prompt += """
 
