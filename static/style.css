@@ -270,6 +270,57 @@ body.light-mode .main-header {
     padding: 2px 16px 80px;
 }
 
+.search-state {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+    margin: 8px 0 10px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: linear-gradient(180deg, var(--bg-card), var(--bg-elevated));
+}
+
+.search-state-copy {
+    min-width: 0;
+}
+
+.search-state-label {
+    display: block;
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.4px;
+    color: var(--text-muted);
+}
+
+#search-state-query {
+    display: block;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-top: 2px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.search-state-clear {
+    border: 1px solid var(--border-strong);
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    border-radius: 999px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    transition: border-color var(--transition-fast), color var(--transition-fast), background var(--transition-fast);
+}
+
+.search-state-clear:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-bg);
+}
+
 /* --- Date Divider --- */
 .date-divider {
     font-size: 0.78rem;
@@ -317,16 +368,22 @@ body.light-mode .main-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 6px;
+    margin-bottom: 8px;
     gap: 12px;
 }
 
-.meta-right {
+.header-left {
     display: flex;
     align-items: center;
-    gap: 8px;
-    font-size: 0.72rem;
-    color: var(--text-muted);
+    gap: 8px; /* 调紧图标和标题的距离 */
+    flex: 1;
+    min-width: 0;
+}
+
+.header-right-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
     flex-shrink: 0;
 }
 
@@ -336,6 +393,7 @@ body.light-mode .main-header {
     align-items: center;
     cursor: help;
     transition: color var(--transition-fast);
+    flex-shrink: 0;
 }
 
 .source-tag:hover {
@@ -343,30 +401,33 @@ body.light-mode .main-header {
 }
 
 .source-tag svg {
-    width: 15px;
-    height: 15px;
-    opacity: 0.9;
+    width: 14px;
+    height: 14px;
+    opacity: 0.8;
 }
 
 .pub-time {
     font-family: "SF Mono", "Fira Code", monospace;
-    font-size: 0.7rem;
+    font-size: 0.68rem;
+    color: var(--text-muted);
 }
 
-/* AI Score Badge */
+/* AI Score Badge - 调淡效果 */
 .ai-score {
     display: inline-flex;
     align-items: center;
-    padding: 2px 6px;
+    padding: 1px 5px;
     border-radius: 4px;
-    font-weight: 700;
-    font-size: 0.68rem;
-    letter-spacing: -0.3px;
+    font-weight: 500; /* 调细字体 */
+    font-size: 0.65rem;
+    letter-spacing: -0.2px;
+    opacity: 0.75; /* 整体调淡 */
 }
 
 .ai-score.high {
     background: var(--score-high-bg);
     color: var(--score-high-text);
+    filter: saturate(0.8); /* 降低饱和度 */
 }
 
 .ai-score.mid {
@@ -380,16 +441,16 @@ body.light-mode .main-header {
 }
 
 .article-title {
-    font-size: 1rem;
+    font-size: 0.98rem;
     font-weight: 600;
-    line-height: 1.45;
+    line-height: 1.4;
     color: var(--text-primary);
+    margin: 0;
     flex: 1;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    margin: 0;
 }
 
 .excerpt-with-like {
@@ -410,6 +471,13 @@ body.light-mode .main-header {
     flex: 1;
     min-width: 0;
     min-height: calc(1.55em * 2);
+}
+
+.search-highlight {
+    background: rgba(255, 149, 0, 0.18);
+    color: var(--text-primary);
+    padding: 0 2px;
+    border-radius: 3px;
 }
 
 .inline-like svg {
@@ -854,49 +922,93 @@ body.light-mode .main-header {
     color: var(--accent);
 }
 
-/* --- Tags --- */
+/* --- AI Profile Modal Layout --- */
+.prompt-card-container {
+    margin-bottom: 20px; /* Space between Persona and Tags */
+    min-height: 120px;
+}
+
+/* --- Tags Bubble System --- */
 .tags-container {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 8px;
+    gap: 8px;
+    margin-top: 12px;
 }
 
 .tag {
     background: var(--bg-card);
     border: 1px solid var(--border);
-    padding: 3px 10px;
+    padding: 6px 14px;
     border-radius: 20px;
-    font-size: 0.78rem;
-    display: flex;
+    font-size: 0.82rem;
+    display: inline-flex;
     align-items: center;
-    gap: 4px;
-    color: var(--text-secondary);
-    transition: border-color var(--transition-fast);
+    position: relative; /* For absolute positioned X */
+    color: var(--text-primary);
+    transition: all var(--transition-fast);
+    user-select: none;
 }
 
 .tag:hover {
     border-color: var(--accent);
+    background: var(--accent-bg);
 }
 
-.tag small {
+.tag-remove {
+    position: absolute;
+    top: -5px;
+    right: -5px;
+    width: 18px;
+    height: 18px;
+    background: var(--error);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 10px;
     cursor: pointer;
-    opacity: 0.6;
+    opacity: 0; /* Hidden by default */
+    transform: scale(0.5);
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
-.tag small:hover {
+.tag:hover .tag-remove {
     opacity: 1;
-    color: var(--error);
+    transform: scale(1);
+}
+
+/* Add Tag Bubble */
+.tag-add-bubble {
+    border: 1px dashed var(--text-muted);
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-muted);
+    transition: all var(--transition-fast);
+}
+
+.tag-add-bubble:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    border-style: solid;
 }
 
 .tag-input-inline {
     border: none;
     background: transparent;
-    width: 32px;
+    width: 70px; /* Compact width */
     outline: none;
     color: var(--accent);
-    font-weight: 700;
-    font-size: 0.85rem;
+    font-weight: 600;
+    font-size: 0.82rem;
+    padding: 0;
+}
+
+.tag-input-inline::placeholder {
+    color: var(--text-muted);
+    opacity: 0.5;
 }
 
 /* --- Preview Area --- */

@@ -17,6 +17,7 @@ PySocks
 feedparser>=6.0.0
 APScheduler>=3.10.0
 PyYAML
+jieba>=0.42.1
 
 # Security & Auth
 bcrypt

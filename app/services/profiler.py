@@ -12,12 +12,13 @@ import requests
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Article, Feed, User
+from app.models import Article, Feed, ProfileHistory, User, UserProfile
 from app.services.ai_scorer import _get_ai_config
 
 logger = logging.getLogger("feedlite.profiler")
 
 PROFILE_WINDOW_DAYS = 7
+PROFILE_HISTORY_LIMIT = 4
 MAX_DESCRIPTION_LEN = 240
 
 
@@ -68,9 +69,34 @@ async def _get_profile_samples(db: AsyncSession, days: int = PROFILE_WINDOW_DAYS
     return samples
 
 
-def _build_profile_prompt(liked_articles: list[dict], disliked_articles: list[dict], previous_profile: str) -> list[dict]:
-    """组装 Profiler 提示词，仅基于正负反馈与上一版画像生成新的用户画像。"""
+async def _get_profile_history(db: AsyncSession, user_id: int, limit: int = PROFILE_HISTORY_LIMIT) -> list[dict]:
+    """读取最近几次画像历史快照，按时间倒序返回。"""
+    stmt = (
+        select(ProfileHistory.profile_text, ProfileHistory.created_at)
+        .where(ProfileHistory.user_id == user_id)
+        .order_by(ProfileHistory.created_at.desc(), ProfileHistory.id.desc())
+        .limit(limit)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+    return [
+        {
+            "profile": row.profile_text,
+            "created_at": _normalize_utc_text(row.created_at or ""),
+        }
+        for row in rows
+    ]
+
+
+def _build_profile_prompt(
+    liked_articles: list[dict],
+    disliked_articles: list[dict],
+    previous_profile: str,
+    profile_history: list[dict] | None = None,
+) -> list[dict]:
+    """组装 Profiler 提示词，基于正负反馈、上一版画像和最近几周画像历史生成新的用户画像。"""
     previous_profile = (previous_profile or "").strip()
+    profile_history = profile_history or []
 
     def _render_articles(title: str, articles: list[dict]) -> str:
         if not articles:
@@ -87,6 +113,17 @@ def _build_profile_prompt(liked_articles: list[dict], disliked_articles: list[di
             )
         return "\n".join(lines)
 
+    def _render_history(histories: list[dict]) -> str:
+        if not histories:
+            return "最近几周画像历史：无"
+        lines = ["最近几周画像历史："]
+        for idx, item in enumerate(histories, start=1):
+            lines.append(
+                f"{idx}. generated_at(UTC): {item['created_at']}\n"
+                f"   profile: {item['profile']}"
+            )
+        return "\n".join(lines)
+
     system_prompt = """
 你是一个用户兴趣画像分析助手。
 
@@ -94,12 +131,14 @@ def _build_profile_prompt(liked_articles: list[dict], disliked_articles: list[di
 1. 最近一周用户明确喜欢的文章
 2. 最近一周用户明确不喜欢的文章
 3. 上一版用户画像
+4. 最近几周画像历史
 
 生成一版更新后的“用户画像”。
 
 要求：
 - 只输出用户画像，不要输出解释、摘要、标签列表或其他字段。
 - 新画像要继承上一版画像中仍然成立的偏好，不要每次都完全推翻。
+- 要把最近几周稳定出现的兴趣方向视为长期偏好，避免因单周样本波动导致画像漂移过大。
 - 要根据喜欢与不喜欢的样本，明确用户偏好和排斥方向。
 - 画像应该适合后续给新闻筛选模型直接使用。
 - 返回必须是严格 JSON，格式如下：
@@ -109,6 +148,7 @@ def _build_profile_prompt(liked_articles: list[dict], disliked_articles: list[di
     user_prompt = "\n\n".join(
         [
             f"上一版用户画像：{previous_profile or '无'}",
+            _render_history(profile_history),
             _render_articles("最近一周喜欢的文章", liked_articles),
             _render_articles("最近一周不喜欢的文章", disliked_articles),
         ]
@@ -241,6 +281,7 @@ async def generate_user_profile(db: AsyncSession, days: int = PROFILE_WINDOW_DAY
         "updated": False,
         "liked_count": 0,
         "disliked_count": 0,
+        "history_count": 0,
         "message": "",
         "profile": "",
     }
@@ -257,23 +298,51 @@ async def generate_user_profile(db: AsyncSession, days: int = PROFILE_WINDOW_DAY
 
     result = await db.execute(select(User).limit(1))
     user = result.scalar_one_or_none()
-    previous_profile = user.base_prompt if user else ""
+    profile = await db.get(UserProfile, user.id) if user else None
+    previous_profile = profile.base_prompt if profile else ""
+    history_items = await _get_profile_history(db, user.id, limit=PROFILE_HISTORY_LIMIT) if user else []
+    summary["history_count"] = len(history_items)
 
     profiler_config = await _get_ai_config(db, role="profiler")
-    messages = _build_profile_prompt(liked_articles, disliked_articles, previous_profile)
+    messages = _build_profile_prompt(
+        liked_articles,
+        disliked_articles,
+        previous_profile,
+        profile_history=history_items,
+    )
     raw_response = _call_profiler(messages, profiler_config)
     new_profile = _parse_profile_response(raw_response)
 
     if not user:
-        user = User(username="default", password_hash="", base_prompt=new_profile, active_tags="")
+        user = User(username="default", password_hash="")
         db.add(user)
+        await db.flush()
+
+    profile = await db.get(UserProfile, user.id)
+    if not profile:
+        profile = UserProfile(
+            user_id=user.id,
+            base_prompt=new_profile,
+            active_tags="",
+            updated_at=datetime.now(timezone.utc).isoformat(),
+        )
+        db.add(profile)
     else:
         await db.execute(
-            update(User)
-            .where(User.id == user.id)
-            .values(base_prompt=new_profile)
+            update(UserProfile)
+            .where(UserProfile.user_id == user.id)
+            .values(
+                base_prompt=new_profile,
+                updated_at=datetime.now(timezone.utc).isoformat(),
+            )
         )
 
+    db.add(
+        ProfileHistory(
+            user_id=user.id,
+            profile_text=new_profile,
+        )
+    )
     await db.commit()
 
     summary["updated"] = True

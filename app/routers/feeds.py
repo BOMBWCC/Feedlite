@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 
 from app.database import get_db
 from app.models import Article, Feed
+from app.services.search_index import build_search_excerpt, build_search_query
 
 router = APIRouter(prefix="/api", tags=["feeds"])
 
@@ -22,6 +23,10 @@ async def get_articles(
             Article.title,
             Article.link,
             Article.description,
+            Article.translated_title,
+            Article.translated_description,
+            Article.translation_language,
+            Article.translation_status,
             Article.published,
             Article.ai_score,
             Article.feedback,
@@ -45,6 +50,10 @@ async def get_articles(
             "title": row.title,
             "link": row.link,
             "description": row.description,
+            "translated_title": row.translated_title,
+            "translated_description": row.translated_description,
+            "translation_language": row.translation_language,
+            "translation_status": row.translation_status,
             "published": row.published,
             "ai_score": row.ai_score,
             "feedback": row.feedback,
@@ -60,23 +69,43 @@ async def get_articles(
 async def search_articles(
     q: str = Query(..., min_length=1),
     limit: int = Query(default=20, ge=1, le=100),
+    category: int | None = Query(default=None),
     db: AsyncSession = Depends(get_db),
 ):
     """全文检索文章（FTS5 MATCH），返回匹配结果"""
-    # 使用原始 SQL：FTS5 MATCH 查询 → 通过 rowid 关联主表 → JOIN feeds 获取分类
+    search_query = build_search_query(q)
+    if not search_query:
+        return []
+    first_token = search_query.split()[0].lower()
+    title_probe = f"%{first_token}%"
+
     fts_sql = text("""
-        SELECT a.id, a.title, a.link, a.description, a.published,
+        SELECT a.id, a.title, a.link, a.description, a.translated_title,
+               a.translated_description, a.translation_language, a.translation_status,
+               a.content, a.published,
                a.ai_score, a.feedback, a.feedback_updated_at, a.created_at, f.category
         FROM articles_fts fts
         JOIN articles a ON a.id = fts.rowid
         JOIN feeds f ON a.feed_id = f.id
-        WHERE articles_fts MATCH :query
+        WHERE fts.search_text MATCH :query
           AND a.status = 'active'
-        ORDER BY rank
+          AND (:category IS NULL OR f.category = :category)
+        ORDER BY
+          CASE
+            WHEN lower(a.title) LIKE :title_probe THEN 0
+            WHEN lower(COALESCE(a.description, '')) LIKE :title_probe THEN 1
+            ELSE 2
+          END,
+          bm25(articles_fts),
+          a.published DESC,
+          a.id DESC
         LIMIT :limit
     """)
 
-    result = await db.execute(fts_sql, {"query": q, "limit": limit})
+    result = await db.execute(
+        fts_sql,
+        {"query": search_query, "limit": limit, "category": category, "title_probe": title_probe},
+    )
     rows = result.all()
 
     return [
@@ -85,12 +114,22 @@ async def search_articles(
             "title": row.title,
             "link": row.link,
             "description": row.description,
+            "translated_title": row.translated_title,
+            "translated_description": row.translated_description,
+            "translation_language": row.translation_language,
+            "translation_status": row.translation_status,
             "published": row.published,
             "ai_score": row.ai_score,
             "feedback": row.feedback,
             "feedback_updated_at": row.feedback_updated_at,
             "created_at": row.created_at,
             "category": row.category,
+            "search_excerpt": build_search_excerpt(
+                title=row.title,
+                description=row.description or "",
+                content=row.content or "",
+                query=q,
+            ),
         }
         for row in rows
     ]

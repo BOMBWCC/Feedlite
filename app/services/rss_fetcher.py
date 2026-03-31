@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import Feed, Article
+from app.services.search_index import build_search_text
 
 logger = logging.getLogger("feedlite.rss_fetcher")
 
@@ -141,6 +142,11 @@ async def deduplicate_and_store(
                 link=art["link"],
                 description=art["description"],
                 content=art["content"],
+                search_text=build_search_text(
+                    title=art["title"],
+                    description=art["description"],
+                    content=art["content"],
+                ),
                 published=art["published"],
                 ai_score=0,
                 status="active",

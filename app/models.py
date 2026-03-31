@@ -8,9 +8,9 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     username = Column(Text, unique=True, nullable=False)
     password_hash = Column(Text, nullable=False)
-    base_prompt = Column(Text, default="")
-    active_tags = Column(Text, default="")
     created_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat())
+    profile = relationship("UserProfile", back_populates="user", uselist=False)
+    profile_histories = relationship("ProfileHistory", back_populates="user")
 
 class Feed(Base):
     __tablename__ = "feeds"
@@ -34,6 +34,12 @@ class Article(Base):
     link = Column(Text, unique=True, nullable=False)
     description = Column(Text)
     content = Column(Text)
+    search_text = Column(Text, default="")
+    translated_title = Column(Text)
+    translated_description = Column(Text)
+    translation_language = Column(Text)
+    translation_status = Column(Text, default="pending")
+    translation_updated_at = Column(Text)
     published = Column(Text, nullable=False)
     ai_score = Column(Integer, default=0)
     feedback = Column(Integer, default=0)
@@ -57,3 +63,23 @@ class AiModel(Base):
     api_base = Column(Text, nullable=False)
     api_key = Column(Text, nullable=False)
     updated_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat())
+
+
+class UserProfile(Base):
+    __tablename__ = "user_profiles"
+    user_id = Column(Integer, ForeignKey("users.id"), primary_key=True)
+    base_prompt = Column(Text, default="")
+    active_tags = Column(Text, default="")
+    updated_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat(), nullable=False)
+
+    user = relationship("User", back_populates="profile")
+
+
+class ProfileHistory(Base):
+    __tablename__ = "profile_history"
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    profile_text = Column(Text, nullable=False)
+    created_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat(), nullable=False)
+
+    user = relationship("User", back_populates="profile_histories")

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update
 
-from app.models import Article, User, AppConfig
+from app.models import Article, User, UserProfile, AppConfig
 
 logger = logging.getLogger("feedlite.ai_scorer")
 
@@ -129,9 +129,15 @@ async def _get_user_profile(db: AsyncSession) -> dict:
     user = result.scalar_one_or_none()
 
     if user:
+        profile = await db.get(UserProfile, user.id)
+        if profile:
+            return {
+                "base_prompt": profile.base_prompt or "",
+                "active_tags": profile.active_tags or "",
+            }
         return {
-            "base_prompt": user.base_prompt or "",
-            "active_tags": user.active_tags or "",
+            "base_prompt": "",
+            "active_tags": "",
         }
     return {"base_prompt": "", "active_tags": ""}
 
@@ -371,7 +377,16 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
 
     # 2. 查找待打分文章
     stmt = (
-        select(Article.id, Article.title, Article.description)
+        select(
+            Article.id,
+            Article.title,
+            Article.description,
+            Article.translated_title,
+            Article.translated_description,
+            Article.translation_language,
+            Article.translation_status,
+            Article.translation_updated_at,
+        )
         .where(Article.status == "active")
         .where(Article.ai_score == 0)
         .order_by(Article.id.desc())
@@ -383,7 +398,19 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
         logger.info("没有待打分的文章")
         return summary
 
-    articles = [{"id": r.id, "title": r.title, "description": r.description or ""} for r in rows]
+    articles = [
+        {
+            "id": r.id,
+            "title": r.title,
+            "description": r.description or "",
+            "translated_title": r.translated_title or "",
+            "translated_description": r.translated_description or "",
+            "translation_language": r.translation_language or "",
+            "translation_status": r.translation_status or "",
+            "translation_updated_at": r.translation_updated_at,
+        }
+        for r in rows
+    ]
     batch_size = ai_config.get("batch_size", 50)
 
     # 3. 分批处理
@@ -391,6 +418,13 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
         batch = articles[i:i + batch_size]
 
         try:
+            from app.services.translator import prepare_articles_for_scoring
+
+            try:
+                batch = await prepare_articles_for_scoring(db, batch)
+            except Exception as translation_error:
+                logger.exception("批次翻译失败 (第 %s 批): %s", i // batch_size + 1, translation_error)
+
             messages = _build_scoring_prompt(batch, profile)
             raw_response = _call_llm(messages, ai_config)
             scores = _parse_scores(raw_response)

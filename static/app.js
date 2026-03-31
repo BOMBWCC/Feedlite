@@ -3,7 +3,7 @@ console.log("🚀 FeedLite JS Starting...");
 document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ DOM Content Loaded");
 
-    // 后端异常时可能返回纯文本 500，而不是 JSON；这里统一兜底，避免前端再报 Unexpected token。
+    // Unified handling for backend exceptions that might return plain text 500 instead of JSON.
     const readApiResponse = async (res) => {
         const contentType = res.headers.get('content-type') || '';
         if (contentType.includes('application/json')) {
@@ -42,7 +42,7 @@ document.addEventListener('DOMContentLoaded', () => {
             e.preventDefault();
             const btn = e.target.querySelector('button');
             const err = document.getElementById('login-error');
-            btn.textContent = '登录中...';
+            btn.textContent = 'Logging in...';
             err.textContent = '';
 
             try {
@@ -62,21 +62,20 @@ document.addEventListener('DOMContentLoaded', () => {
                     document.getElementById('login-overlay').classList.remove('active');
                     window.location.reload();
                 } else {
-                    err.textContent = '用户名或密码错误';
+                    err.textContent = 'Invalid username or password';
                 }
             } catch (error) {
-                err.textContent = '网络错误';
+                err.textContent = 'Network error';
             } finally {
-                btn.textContent = '进入';
+                btn.textContent = 'Enter';
             }
         });
     }
 
-    // --- 智能主题管理 ---
-    // 默认暗色（body 无 class），亮色为 body.light-mode
+    // --- Theme Management ---
     const themeToggle = document.getElementById('theme-toggle');
     const applyTheme = (theme) => {
-        let isDark = true; // 用一个变量记录当前到底是不是暗色模式
+        let isDark = true;
 
         if (theme === 'light') {
             document.body.classList.add('light-mode');
@@ -85,20 +84,18 @@ document.addEventListener('DOMContentLoaded', () => {
             document.body.classList.remove('light-mode');
             isDark = true;
         } else {
-            // 跟随系统
+            // Follow system preference
             const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
             document.body.classList.toggle('light-mode', !prefersDark);
             isDark = prefersDark;
         }
 
-        // 核心修改区：动态插入对应图标的 HTML 标签
         if (isDark) {
             themeToggle.innerHTML = '<i data-lucide="moon"></i>';
         } else {
             themeToggle.innerHTML = '<i data-lucide="sun"></i>';
         }
 
-        // 【千万别忘了这行】每次替换完里面的 HTML，都要让 Lucide 重新扫描并渲染一次
         lucide.createIcons();
     };
 
@@ -116,34 +113,86 @@ document.addEventListener('DOMContentLoaded', () => {
         if (localStorage.getItem('theme') === 'auto') applyTheme('auto');
     });
 
-    // --- 弹窗逻辑 ---
+    // --- Modal Logic ---
     const setupModal = (btnId, modalId) => {
         const btn = document.getElementById(btnId);
         const modal = document.getElementById(modalId);
         if (!btn || !modal) return;
         const closeBtn = modal.querySelector('.close-modal');
-        btn.onclick = () => modal.style.display = 'block';
-        if (closeBtn) closeBtn.onclick = () => modal.style.display = 'none';
+
+        const closeModal = () => {
+            modal.style.display = 'none';
+            if (modalId === 'modal-subs') {
+                resetSubsModal();
+            }
+        };
+
+        btn.onclick = () => {
+            modal.style.display = 'block';
+            if (modalId === 'modal-subs') {
+                const listTab = modal.querySelector('[data-tab="tab-list"]');
+                if (listTab && listTab.classList.contains('active')) {
+                    loadSubsList();
+                }
+            }
+        };
+        if (closeBtn) closeBtn.onclick = closeModal;
         modal.addEventListener('click', (e) => {
-            if (e.target === modal) modal.style.display = 'none';
+            if (e.target === modal) closeModal();
         });
     };
     setupModal('nav-subs', 'modal-subs');
     setupModal('nav-profile', 'modal-profile');
 
-    // --- 标签页切换 ---
+    const resetSubsModal = () => {
+        const urlInput = document.getElementById('new-sub-url');
+        const previewContainer = document.getElementById('preview-container');
+        const categorySelect = document.getElementById('new-sub-category');
+        const categoryText = document.querySelector('#custom-category-dropdown .custom-select-text');
+        const categoryOptions = document.querySelectorAll('#custom-category-dropdown .custom-select-options li');
+
+        if (urlInput) urlInput.value = '';
+        if (previewContainer) {
+            previewContainer.classList.add('hidden');
+            const previewList = previewContainer.querySelector('.preview-list');
+            if (previewList) previewList.innerHTML = '';
+        }
+        if (categorySelect) categorySelect.value = '';
+        if (categoryText) categoryText.textContent = 'Select Category';
+        if (categoryOptions) categoryOptions.forEach(opt => opt.classList.remove('selected'));
+        lastPreviewData = null;
+
+        document.querySelectorAll('.preview-area').forEach(area => {
+            if (area.id !== 'preview-container') {
+                area.classList.add('hidden');
+                area.innerHTML = '';
+            }
+        });
+        document.querySelectorAll('.btn-preview-list-sub').forEach(btn => {
+            btn.innerHTML = '<i data-lucide="eye"></i>';
+        });
+        lucide.createIcons();
+    };
+
+    // --- Tab Switching ---
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.addEventListener('click', () => {
             const tabId = btn.dataset.tab;
             btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             btn.closest('.modal-content').querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
             btn.classList.add('active');
-            document.getElementById(tabId).classList.add('active');
+            const targetPane = document.getElementById(tabId);
+            if (targetPane) targetPane.classList.add('active');
+
+            if (tabId === 'tab-list') {
+                loadSubsList();
+            }
         });
     });
 
-    // --- 预览与订阅管理 ---
+    // --- Preview & Subscription Management ---
     const renderPreview = (container, data) => {
+        if (!container) return;
         container.innerHTML = data.map(item => `
             <div class="preview-item">
                 <h5>${item.title}</h5>
@@ -152,12 +201,14 @@ document.addEventListener('DOMContentLoaded', () => {
         `).join('');
     };
 
-    // 统一处理折叠
     document.addEventListener('click', e => {
-        if (e.target.classList.contains('btn-fold')) e.target.closest('.preview-area').classList.add('hidden');
+        const foldBtn = e.target.closest('.btn-fold');
+        if (foldBtn) {
+            foldBtn.closest('.preview-area').classList.add('hidden');
+        }
     });
 
-    // --- 自定义分类下拉框交互逻辑 ---
+    // --- Custom Category Dropdown ---
     const categoryDropdown = document.getElementById('custom-category-dropdown');
     if (categoryDropdown) {
         const trigger = categoryDropdown.querySelector('.custom-select-trigger');
@@ -165,30 +216,22 @@ document.addEventListener('DOMContentLoaded', () => {
         const hiddenInput = document.getElementById('new-sub-category');
         const textSpan = categoryDropdown.querySelector('.custom-select-text');
 
-        // 切换下拉菜单
         trigger.addEventListener('click', (e) => {
             e.stopPropagation();
             categoryDropdown.classList.toggle('open');
         });
 
-        // 点击选项
         options.forEach(option => {
             option.addEventListener('click', (e) => {
                 e.stopPropagation();
-                // 更换文字与隐藏原生 input 设值
                 textSpan.textContent = option.textContent;
                 hiddenInput.value = option.dataset.value;
-                
-                // 处理选中高亮状态
                 options.forEach(opt => opt.classList.remove('selected'));
                 option.classList.add('selected');
-                
-                // 选定后自动折叠关闭
                 categoryDropdown.classList.remove('open');
             });
         });
 
-        // 防误触：点击空白区域收起拉框
         document.addEventListener('click', (e) => {
             if (!categoryDropdown.contains(e.target)) {
                 categoryDropdown.classList.remove('open');
@@ -196,7 +239,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 添加新源 - 预览（调用真实 RSS 抓取）
+    // Add New Source - Preview
     let lastPreviewData = null;
     const previewNewBtn = document.getElementById('preview-new-btn');
     if (previewNewBtn) {
@@ -210,14 +253,14 @@ document.addEventListener('DOMContentLoaded', () => {
             try {
                 const res = await apiFetch(`/api/sources/preview?url=${encodeURIComponent(url)}`, { method: 'POST' });
                 const data = await readApiResponse(res);
-                if (!res.ok) throw new Error(data.detail || '预览失败');
+                if (!res.ok) throw new Error(data.detail || 'Preview failed');
 
                 lastPreviewData = data;
-                document.getElementById('preview-title-text').textContent = data.feed_title || '未命名订阅源';
+                document.getElementById('preview-title-text').textContent = data.feed_title || 'Untitled Source';
                 document.getElementById('preview-container').classList.remove('hidden');
                 renderPreview(document.getElementById('preview-container').querySelector('.preview-list'), data.articles);
             } catch (e) {
-                alert('预览失败: ' + e.message);
+                alert('Preview failed: ' + e.message);
             } finally {
                 previewNewBtn.innerHTML = '<i data-lucide="eye"></i>';
                 lucide.createIcons();
@@ -225,7 +268,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 添加新源 - 确认添加
+    // Add New Source - Confirm Add
     const confirmAddBtn = document.getElementById('confirm-add-btn');
     if (confirmAddBtn) {
         confirmAddBtn.addEventListener('click', async () => {
@@ -234,7 +277,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const categorySelect = document.getElementById('new-sub-category');
             if (!url) return;
             if (!categorySelect.value) {
-                alert("请先选择一个订阅分类！");
+                alert("Please select a category first!");
                 return;
             }
 
@@ -244,15 +287,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 const category = categorySelect.value;
                 const res = await apiFetch(`/api/sources/?url=${encodeURIComponent(url)}&title=${encodeURIComponent(feedTitle)}&category=${category}`, { method: 'POST' });
                 const data = await readApiResponse(res);
-                if (!res.ok) throw new Error(data.detail || '添加失败');
+                if (!res.ok) throw new Error(data.detail || 'Failed to add source');
 
-                alert('✅ 订阅源添加成功！');
+                alert('✅ Source added successfully!');
                 urlInput.value = '';
                 confirmAddBtn.disabled = true;
                 document.getElementById('preview-container').classList.add('hidden');
                 lastPreviewData = null;
             } catch (e) {
-                alert('添加失败: ' + e.message);
+                alert('Failed to add: ' + e.message);
             } finally {
                 confirmAddBtn.innerHTML = '<i data-lucide="plus"></i>';
                 lucide.createIcons();
@@ -260,7 +303,7 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 我的订阅 - 加载列表
+    // My Subscriptions - Load List
     const loadSubsList = async () => {
         const container = document.getElementById('my-subs-list');
         if (!container) return;
@@ -279,8 +322,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                     <div class="sub-item-actions">
-                        <button class="btn-action btn-preview-list-sub" data-url="${f.url}" title="展开预览最新内容"><i data-lucide="eye"></i></button>
-                        <button class="btn-action btn-delete-sub" title="删除订阅"><i data-lucide="trash-2"></i></button>
+                        <button class="btn-action btn-preview-list-sub" data-url="${f.url}" title="Preview latest content"><i data-lucide="eye"></i></button>
+                        <button class="btn-action btn-delete-sub" title="Delete subscription"><i data-lucide="trash-2"></i></button>
                     </div>
                 </div>
                 <div id="list-preview-${f.id}" class="preview-area hidden" style="margin-top: -8px; margin-bottom: 12px; background: rgba(0,0,0,0.2); border-radius: 0 0 12px 12px;"></div>
@@ -288,24 +331,17 @@ document.addEventListener('DOMContentLoaded', () => {
             }).join('');
             lucide.createIcons();
         } catch (e) {
-            container.innerHTML = '<div class="loading-trigger">加载失败</div>';
+            container.innerHTML = '<div class="loading-trigger">Failed to load</div>';
         }
     };
 
-    // 切到"我的订阅"标签时加载
-    document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            if (btn.dataset.tab === 'tab-list') loadSubsList();
-        });
-    });
-
-    // 删除订阅（事件委托）
+    // My Subscriptions - Delete
     document.addEventListener('click', async (e) => {
         const delBtn = e.target.closest('.btn-delete-sub');
         if (!delBtn) return;
         const card = delBtn.closest('.sub-item-card');
         const id = card.dataset.id;
-        if (!confirm('确认删除此订阅源？')) return;
+        if (!confirm('Confirm delete this subscription?')) return;
 
         try {
             const res = await apiFetch(`/api/sources/${id}`, { method: 'DELETE' });
@@ -314,11 +350,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(`list-preview-${id}`)?.remove();
             }
         } catch (e) {
-            alert('删除失败');
+            alert('Delete failed');
         }
     });
 
-    // 列表内的独立预览事件委托
+    // My Subscriptions - Inline Preview
     document.addEventListener('click', async (e) => {
         const previewBtn = e.target.closest('.btn-preview-list-sub');
         if (!previewBtn) return;
@@ -328,7 +364,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const url = previewBtn.dataset.url;
         const previewBox = document.getElementById(`list-preview-${id}`);
 
-        // 折叠逻辑
         if (!previewBox.classList.contains('hidden')) {
             previewBox.classList.add('hidden');
             previewBox.innerHTML = '';
@@ -337,13 +372,12 @@ document.addEventListener('DOMContentLoaded', () => {
             return;
         }
 
-        // 展开与网络探测逻辑
         previewBtn.innerHTML = '<i data-lucide="loader-circle" class="lucide-spin"></i>';
         lucide.createIcons();
         try {
             const res = await apiFetch(`/api/sources/preview?url=${encodeURIComponent(url)}`, { method: 'POST' });
             const data = await readApiResponse(res);
-            if (!res.ok) throw new Error(data.detail || '预览探测失败');
+            if (!res.ok) throw new Error(data.detail || 'Preview detection failed');
 
             previewBox.classList.remove('hidden');
             previewBox.innerHTML = `
@@ -351,20 +385,82 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             renderPreview(previewBox.querySelector('.preview-list'), data.articles);
         } catch (err) {
-            alert('预览探测失败: ' + err.message);
+            alert('Preview failed: ' + err.message);
         } finally {
             previewBtn.innerHTML = '<i data-lucide="chevron-up"></i>';
             lucide.createIcons();
         }
     });
 
-    // --- 文章加载与渲染 ---
+    // --- Article Loading & Rendering ---
     const feedStream = document.getElementById('feed-stream');
     const loadingTrigger = document.getElementById('loading');
+    const searchState = document.getElementById('search-state');
+    const searchStateQuery = document.getElementById('search-state-query');
+    const clearSearchBtn = document.getElementById('clear-search');
     let offset = 0;
     const limit = 20;
     let isLoading = false;
     let lastDateStr = "";
+    let currentSearchQuery = "";
+
+    const escapeHtml = (str) => {
+        if (str == null) return '';
+        return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+
+    const escapeRegExp = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    const getSearchTokens = (query) => {
+        if (!query) return [];
+        const normalized = query
+            .toLowerCase()
+            .replace(/[^\w\u4e00-\u9fff]+/g, ' ')
+            .trim();
+        if (!normalized) return [];
+
+        const rawTokens = normalized.split(/\s+/).filter(Boolean);
+        return [...new Set(rawTokens)].sort((a, b) => b.length - a.length);
+    };
+
+    const highlightText = (text, query) => {
+        const safeText = escapeHtml(text || '');
+        const tokens = getSearchTokens(query);
+        if (!safeText || tokens.length === 0) return safeText;
+
+        const pattern = new RegExp(`(${tokens.map(escapeRegExp).join('|')})`, 'gi');
+        return safeText.replace(pattern, '<mark class="search-highlight">$1</mark>');
+    };
+
+    const updateSearchState = (query = "") => {
+        currentSearchQuery = query.trim();
+        const searching = Boolean(currentSearchQuery);
+
+        if (searchState) {
+            searchState.classList.toggle('hidden', !searching);
+        }
+        if (searchStateQuery) {
+            searchStateQuery.textContent = searching ? `"${currentSearchQuery}"` : '';
+        }
+        if (loadingTrigger) {
+            loadingTrigger.textContent = searching ? 'All search results displayed' : 'Loading...';
+        }
+    };
+
+    const resetFeedStream = () => {
+        lastDateStr = "";
+        const indicator = document.getElementById('pull-to-refresh');
+        const loader = document.getElementById('loading');
+        feedStream.innerHTML = '';
+        if (searchState) feedStream.appendChild(searchState);
+        if (indicator) feedStream.appendChild(indicator);
+        if (loader) feedStream.appendChild(loader);
+    };
 
     const formatDate = (dateObj) => {
         const year = dateObj.getFullYear();
@@ -396,16 +492,15 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     const CATEGORY_MAP = {
-        1: { name: '\u65f6\u653f\u5546\u4e1a', icon: 'briefcase' }, // 时政商业
-        2: { name: '\u79d1\u6280\u5f00\u53d1', icon: 'cpu' },       // 科技开发
-        3: { name: '\u6e38\u620f\u6587\u5a31', icon: 'gamepad-2' }, // 游戏文娱
-        4: { name: '\u751f\u6d3b\u6d89\u730e', icon: 'coffee' },    // 生活涉猎
-        5: { name: '\u7efc\u5408\u4e0e\u5176\u4ed6', icon: 'layers' } // 综合与其他
+        1: { name: 'News & Biz', icon: 'briefcase' },
+        2: { name: 'Tech & Dev', icon: 'cpu' },
+        3: { name: 'Games & Ent', icon: 'gamepad-2' },
+        4: { name: 'Lifestyle', icon: 'coffee' },
+        5: { name: 'General', icon: 'layers' }
     };
 
     const renderArticle = (article) => {
         let rawDateStr = article.published_at || article.published || article.created_at;
-        // Convert strict SQL strings (e.g. "2026-03-23 10:45:27") to UTC ISO8601 so browsers parse as local time
         if (rawDateStr && typeof rawDateStr === 'string' && !rawDateStr.includes('Z') && !rawDateStr.match(/[+-]\d{2}:?\d{2}$/)) {
             rawDateStr = String(rawDateStr).replace(" ", "T") + "Z";
         }
@@ -414,7 +509,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const dateStr = formatDate(pubDate);
         let html = "";
 
-        // 插入日期分隔线
         if (dateStr !== lastDateStr) {
             html += `<div class="date-divider">${dateStr}</div>`;
             lastDateStr = dateStr;
@@ -422,39 +516,53 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const score = Math.round(article.ai_score || 0);
         const scoreClass = getScoreClass(score);
-        const excerpt = article.description
-            ? (article.description.length > 120 ? article.description.substring(0, 120) + '...' : article.description)
-            : '无内容预览';
+        const rawExcerpt = currentSearchQuery
+            ? (article.search_excerpt || article.description || article.content || 'No preview available')
+            : (article.description
+                ? (article.description.length > 120 ? article.description.substring(0, 120) + '...' : article.description)
+                : 'No preview available');
+        const excerptHtml = currentSearchQuery
+            ? highlightText(rawExcerpt, currentSearchQuery)
+            : escapeHtml(rawExcerpt);
+        const titleHtml = currentSearchQuery
+            ? highlightText(article.title, currentSearchQuery)
+            : escapeHtml(article.title);
 
-        const categoryData = CATEGORY_MAP[article.category] || { name: '\u7efc\u5408', icon: 'layers' }; // 综合
+        const categoryData = CATEGORY_MAP[article.category] || { name: 'General', icon: 'layers' };
 
         const escapeAttr = (str) => {
             if (!str) return '';
-            return String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;');
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
         };
         const escapedTitle = escapeAttr(article.title);
-        const escapedDesc = escapeAttr(article.description || '无内容预览');
+        const escapedDesc = escapeAttr(rawExcerpt || 'No preview available');
 
         html += `
             <article class="article-card" data-id="${article.id}">
                 <div class="card-header-inline">
-                    <h2 class="article-title" title="${escapedTitle}">${article.title}</h2>
-                    <div class="meta-right">
+                    <div class="header-left">
+                        <span class="source-tag" title="${categoryData.name}"><i data-lucide="${categoryData.icon}"></i></span>
+                        <h2 class="article-title" title="${escapedTitle}">${titleHtml}</h2>
+                    </div>
+                    <div class="header-right-meta">
                         <span class="pub-time">${formatTime(pubDate)}</span>
                         <span class="ai-score ${scoreClass}">${score}</span>
-                        <span class="source-tag" title="${categoryData.name}"><i data-lucide="${categoryData.icon}"></i></span>
                         <div class="action-menu-container">
-                            <button class="btn-more-options" title="更多选项"><i data-lucide="more-horizontal"></i></button>
+                            <button class="btn-more-options" title="More options"><i data-lucide="more-horizontal"></i></button>
                             <div class="action-dropdown">
-                                <a href="${article.link}" target="_blank" rel="noopener" class="dropdown-item" title="查看原文"><i data-lucide="external-link"></i></a>
-                                <button class="dropdown-item btn-not-interest ${article.feedback === -1 ? 'active' : ''}" data-type="-1" title="不感兴趣"><i data-lucide="thumbs-down"></i></button>
+                                <a href="${article.link}" target="_blank" rel="noopener" class="dropdown-item" title="View original"><i data-lucide="external-link"></i></a>
+                                <button class="dropdown-item btn-not-interest ${article.feedback === -1 ? 'active' : ''}" data-type="-1" title="Not interested"><i data-lucide="thumbs-down"></i></button>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="excerpt-with-like">
-                    <p class="article-excerpt" title="${escapedDesc}">${excerpt}</p>
-                    <button class="btn-action btn-interest inline-like ${article.feedback === 1 ? 'active' : ''}" data-type="1" title="感兴趣"><i data-lucide="thumbs-up"></i></button>
+                    <p class="article-excerpt" title="${escapedDesc}">${excerptHtml}</p>
+                    <button class="btn-action btn-interest inline-like ${article.feedback === 1 ? 'active' : ''}" data-type="1" title="Interested"><i data-lucide="thumbs-up"></i></button>
                 </div>
             </article>
         `;
@@ -463,16 +571,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const loadArticles = async (reset = false) => {
         if (isLoading) return;
+        if (currentSearchQuery && !reset) return;
         isLoading = true;
 
         if (reset) {
             offset = 0;
-            lastDateStr = "";
-            const indicator = document.getElementById('pull-to-refresh');
-            const loader = document.getElementById('loading');
-            feedStream.innerHTML = '';
-            if (indicator) feedStream.appendChild(indicator);
-            if (loader) feedStream.appendChild(loader);
+            updateSearchState("");
+            resetFeedStream();
         }
 
         const loader = document.getElementById('loading');
@@ -493,7 +598,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else if (reset) {
                 const emptyMsg = document.createElement('div');
                 emptyMsg.className = 'loading-trigger';
-                emptyMsg.textContent = '暂无新内容，点击 Logo 刷新';
+                emptyMsg.textContent = 'No new content. Click Logo to refresh.';
                 feedStream.insertBefore(emptyMsg, loader);
             }
         } catch (e) {
@@ -503,14 +608,10 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // 全文检索
     const searchArticles = async (query) => {
-        lastDateStr = "";
-        const indicator = document.getElementById('pull-to-refresh');
+        updateSearchState(query);
+        resetFeedStream();
         const loader = document.getElementById('loading');
-        feedStream.innerHTML = '';
-        if (indicator) feedStream.appendChild(indicator);
-        if (loader) feedStream.appendChild(loader);
 
         try {
             const res = await apiFetch(`/api/articles/search?q=${encodeURIComponent(query)}`);
@@ -526,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 const emptyMsg = document.createElement('div');
                 emptyMsg.className = 'loading-trigger';
-                emptyMsg.textContent = `未找到包含「${query}」的文章`;
+                emptyMsg.textContent = `No articles found containing "${query}"`;
                 feedStream.insertBefore(emptyMsg, loader);
             }
         } catch (e) {
@@ -534,12 +635,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    // 初始加载
     loadArticles(true);
 
-    // --- 关注/不关注 交互 & 更多菜单 ---
     document.addEventListener('click', async (e) => {
-        // Toggle Dropdown menu
         const dropdownItem = e.target.closest('.dropdown-item');
         if (dropdownItem) {
             const container = dropdownItem.closest('.action-menu-container');
@@ -570,7 +668,6 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = e.target.closest('.btn-interest, .btn-not-interest');
         if (btn) {
             e.stopPropagation();
-            // Optional: Close dropdown automatically when feedback is clicked
             const dropdown = btn.closest('.action-dropdown');
             if (dropdown) dropdown.classList.remove('show');
 
@@ -593,12 +690,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Logo 点击刷新 ---
     document.getElementById('logo-refresh').onclick = async () => {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) searchInput.value = '';
+        toggleSearch(true);
         await refreshFeeds();
     };
 
-    // --- 搜索展开/收起动画 ---
     const searchToggle = document.getElementById('search-toggle');
     const searchBox = document.getElementById('header-search');
     const searchInput = document.getElementById('search-input');
@@ -610,7 +708,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const hd = document.querySelector('.header-content');
             if (hd) hd.classList.remove('search-active');
             searchOpen = false;
-            searchInput.blur();
+            if (forceClose) searchInput.blur();
             searchToggle.innerHTML = '<i data-lucide="search"></i>';
         } else {
             searchBox.classList.add('expanded');
@@ -625,28 +723,40 @@ document.addEventListener('DOMContentLoaded', () => {
 
     searchToggle.addEventListener('click', () => toggleSearch());
 
-    // ESC 关闭搜索
     searchInput.addEventListener('keydown', async (e) => {
         if (e.key === 'Escape') {
             toggleSearch(true);
+            if (!searchInput.value.trim() && currentSearchQuery) {
+                updateSearchState("");
+                await loadArticles(true);
+            }
             return;
         }
         if (e.key === 'Enter') {
             const query = searchInput.value.trim();
-            if (!query) { loadArticles(true); return; }
-            // 调用 FTS5 全文检索 API
+            if (!query) {
+                updateSearchState("");
+                await loadArticles(true);
+                return;
+            }
             await searchArticles(query);
         }
     });
 
-    // 点击页面其他地方收起搜索
+    if (clearSearchBtn) {
+        clearSearchBtn.addEventListener('click', async () => {
+            if (searchInput) searchInput.value = '';
+            updateSearchState("");
+            await loadArticles(true);
+        });
+    }
+
     document.addEventListener('click', (e) => {
         if (searchOpen && !searchBox.contains(e.target) && e.target !== searchToggle) {
             toggleSearch(true);
         }
     });
 
-    // --- 无限滚动 ---
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !isLoading) {
             loadArticles();
@@ -654,29 +764,27 @@ document.addEventListener('DOMContentLoaded', () => {
     }, { threshold: 0.1 });
     observer.observe(loadingTrigger);
 
-    // --- 刷新逻辑 ---
     const refreshFeeds = async () => {
         const logo = document.getElementById('logo-refresh');
         const indicator = document.getElementById('pull-to-refresh');
 
         logo.style.opacity = '0.5';
         indicator.classList.add('active');
-        indicator.querySelector('span').textContent = '加载最新内容...';
+        indicator.querySelector('span').textContent = 'Loading latest content...';
 
         try {
             await loadArticles(true);
         } catch (e) {
-            alert("加载失败，请检查网络或配置");
+            alert("Refresh failed. Please check your network or configuration.");
         } finally {
             logo.style.opacity = '1';
             indicator.classList.remove('active');
             setTimeout(() => {
-                indicator.querySelector('span').textContent = '下拉刷新...';
+                indicator.querySelector('span').textContent = 'Pull to refresh...';
             }, 300);
         }
     };
 
-    // --- 下拉刷新触摸逻辑 ---
     let touchStart = 0;
     window.addEventListener('touchstart', e => { touchStart = e.touches[0].pageY; }, { passive: true });
     window.addEventListener('touchmove', e => {
@@ -692,7 +800,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- 回到顶部 ---
     const backToTopBtn = document.getElementById('back-to-top');
     window.addEventListener('scroll', () => {
         if (window.scrollY > 400) {
@@ -708,62 +815,104 @@ document.addEventListener('DOMContentLoaded', () => {
         window.scrollTo({ top: 0, behavior: 'smooth' });
     };
 
-    // --- AI 画像管理 ---
     const profileModal = document.getElementById('modal-profile');
     const tagsList = document.getElementById('tags-list');
     const promptEditor = document.getElementById('system-prompt-editor');
-    const saveProfileBtn = document.getElementById('save-profile');
 
-    // 加载画像数据
     const loadProfile = async () => {
         try {
             const res = await apiFetch('/api/profile/');
             const data = await res.json();
-
-            // 渲染 Tags
             const tags = data.active_tags ? data.active_tags.split(',').map(t => t.trim()).filter(Boolean) : [];
             renderTags(tags);
-
-            // 填充 Prompt
             if (promptEditor) {
                 promptEditor.value = data.base_prompt || '';
             }
         } catch (e) {
-            console.error('加载画像失败:', e);
+            console.error('Failed to load profile:', e);
         }
     };
 
     const renderTags = (tags) => {
         if (!tagsList) return;
-        tagsList.innerHTML = tags.map(t =>
-            `<span class="tag">${t} <small class="tag-remove">&times;</small></span>`
-        ).join('') + '<input type="text" placeholder="在新标签页输入..." class="tag-input-inline" id="tag-new-input">';
+        tagsList.innerHTML = ''; 
 
-        // 删除标签
-        tagsList.querySelectorAll('.tag-remove').forEach(btn => {
-            btn.addEventListener('click', () => btn.closest('.tag').remove());
+        // 1. Render existing tags
+        tags.forEach(t => {
+            const tagEl = document.createElement('span');
+            tagEl.className = 'tag';
+            tagEl.textContent = t;
+
+            const removeBtn = document.createElement('div');
+            removeBtn.className = 'tag-remove';
+            removeBtn.innerHTML = '&times;';
+            removeBtn.onclick = async (e) => {
+                e.stopPropagation();
+                try {
+                    const res = await apiFetch(`/api/profile/tags?tag=${encodeURIComponent(t)}`, { method: 'DELETE' });
+                    if (res.ok) {
+                        loadProfile(); 
+                    }
+                } catch (err) {
+                    console.error('Failed to delete tag:', err);
+                }
+            };
+            tagEl.appendChild(removeBtn);
+            tagsList.appendChild(tagEl);
         });
 
-        // 回车添加标签
-        const input = document.getElementById('tag-new-input');
-        if (input) {
-            input.addEventListener('keydown', (e) => {
+        // 2. Render "+" bubble
+        const addBubble = document.createElement('div');
+        addBubble.className = 'tag tag-add-bubble';
+        addBubble.innerHTML = '<span class="plus-sign">+</span>';
+        
+        addBubble.onclick = () => {
+            if (addBubble.querySelector('input')) return; 
+            
+            addBubble.innerHTML = '';
+            const input = document.createElement('input');
+            input.type = 'text';
+            input.className = 'tag-input-inline';
+            input.placeholder = 'New...';
+            input.maxLength = 8; 
+            input.autocomplete = 'off';
+            
+            addBubble.appendChild(input);
+            input.focus();
+
+            const submitTag = async () => {
+                const val = input.value.trim();
+                if (val && !tags.includes(val)) {
+                    try {
+                        const res = await apiFetch('/api/profile/tags', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ tag: val }),
+                        });
+                        if (res.ok) {
+                            loadProfile(); 
+                            return;
+                        }
+                    } catch (err) {
+                        console.error('Failed to add tag:', err);
+                    }
+                }
+                renderTags(tags); 
+            };
+
+            input.onkeydown = (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
-                    const val = input.value.trim();
-                    if (!val) return;
-                    const span = document.createElement('span');
-                    span.className = 'tag';
-                    span.innerHTML = `${val} <small class="tag-remove">&times;</small>`;
-                    span.querySelector('.tag-remove').addEventListener('click', () => span.remove());
-                    tagsList.insertBefore(span, input);
-                    input.value = '';
+                    submitTag();
                 }
-            });
-        }
+                if (e.key === 'Escape') renderTags(tags);
+            };
+            input.onblur = submitTag;
+        };
+
+        tagsList.appendChild(addBubble);
     };
 
-    // 打开画像弹窗时加载数据
     const profileBtn = document.getElementById('nav-profile');
     if (profileBtn) {
         const origClick = profileBtn.onclick;
@@ -771,57 +920,6 @@ document.addEventListener('DOMContentLoaded', () => {
             if (origClick) origClick();
             loadProfile();
         };
-    }
-
-    // 保存 Tag（base_prompt 仅允许 AI 自动生成）
-    if (saveProfileBtn) {
-        saveProfileBtn.addEventListener('click', async () => {
-            const tags = Array.from(tagsList.querySelectorAll('.tag'))
-                .map(el => el.textContent.replace('×', '').trim())
-                .filter(Boolean);
-            let currentTags = [];
-            try {
-                const currentRes = await apiFetch('/api/profile/');
-                const currentData = await currentRes.json();
-                currentTags = currentData.active_tags ? currentData.active_tags.split(',').map(t => t.trim()).filter(Boolean) : [];
-            } catch (e) {
-                alert('读取当前标签失败: ' + e.message);
-                return;
-            }
-
-            saveProfileBtn.innerHTML = '<i data-lucide="loader-circle" class="lucide-spin"></i>';
-            lucide.createIcons();
-            try {
-                const tagsToAdd = tags.filter(tag => !currentTags.includes(tag));
-                const tagsToDelete = currentTags.filter(tag => !tags.includes(tag));
-
-                for (const tag of tagsToAdd) {
-                    const res = await apiFetch('/api/profile/tags', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ tag }),
-                    });
-                    const data = await readApiResponse(res);
-                    if (!res.ok) throw new Error(data.detail || data.message || '新增标签失败');
-                }
-
-                for (const tag of tagsToDelete) {
-                    const res = await apiFetch(`/api/profile/tags?tag=${encodeURIComponent(tag)}`, {
-                        method: 'DELETE',
-                    });
-                    const data = await readApiResponse(res);
-                    if (!res.ok) throw new Error(data.detail || data.message || '删除标签失败');
-                }
-
-                alert('✅ 标签已保存');
-                await loadProfile();
-            } catch (e) {
-                alert('保存失败: ' + e.message);
-            } finally {
-                saveProfileBtn.innerHTML = '<i data-lucide="save"></i>';
-                lucide.createIcons();
-            }
-        });
     }
 
     lucide.createIcons();

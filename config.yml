@@ -29,3 +29,10 @@ security:
 ai:
   default_provider: "openai"
   default_model: "gpt-3.5-turbo"
+
+# 多语言翻译（默认值会在启动时同步到 app_config）
+translation:
+  enabled: true
+  target_language: "zh-CN"
+  translate_title: true
+  translate_description: true

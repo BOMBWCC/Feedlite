@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from app.database import Base
-from app.models import AiModel, Article, Feed, User
+from app.models import AiModel, AppConfig, Article, Feed, User, UserProfile
 from app.services.ai_scorer import _build_scoring_prompt, score_unscored_articles
 
 
@@ -24,12 +24,7 @@ class AiScorerTestCase(unittest.IsolatedAsyncioTestCase):
             await conn.run_sync(Base.metadata.create_all)
 
         async with self.session_factory() as session:
-            user = User(
-                username="tester",
-                password_hash="x",
-                active_tags="伊朗战争,AI",
-                base_prompt="用户长期关注国际局势与技术趋势，对无关娱乐新闻兴趣较低。",
-            )
+            user = User(username="tester", password_hash="x")
             feed = Feed(url="https://example.com/rss.xml", title="Example Feed", category=2)
             ai_model = AiModel(
                 role="scorer",
@@ -39,6 +34,14 @@ class AiScorerTestCase(unittest.IsolatedAsyncioTestCase):
                 api_key="test-key",
             )
             session.add_all([user, feed, ai_model])
+            await session.commit()
+            session.add(
+                UserProfile(
+                    user_id=user.id,
+                    active_tags="伊朗战争,AI",
+                    base_prompt="用户长期关注国际局势与技术趋势，对无关娱乐新闻兴趣较低。",
+                )
+            )
             await session.commit()
             await session.refresh(feed)
             self.feed_id = feed.id
@@ -63,6 +66,18 @@ class AiScorerTestCase(unittest.IsolatedAsyncioTestCase):
             await session.commit()
             await session.refresh(article)
             return article.id
+
+    async def _set_translation_config(self, *, enabled: str = "true", target_language: str = "zh-CN"):
+        async with self.session_factory() as session:
+            session.add_all(
+                [
+                    AppConfig(key="translation.enabled", value=enabled),
+                    AppConfig(key="translation.target_language", value=target_language),
+                    AppConfig(key="translation.translate_title", value="true"),
+                    AppConfig(key="translation.translate_description", value="true"),
+                ]
+            )
+            await session.commit()
 
     def test_build_scoring_prompt_contains_tags_profile_and_article_summary(self):
         messages = _build_scoring_prompt(
@@ -127,6 +142,37 @@ class AiScorerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(by_id[min(high_id, low_id)].status, "filtered")
         self.assertEqual(by_id[max(high_id, low_id)].ai_score, 88)
         self.assertEqual(by_id[max(high_id, low_id)].status, "active")
+
+    async def test_score_unscored_articles_prefers_translated_content_for_scoring(self):
+        article_id = await self._create_article("OpenAI ships new API", "English summary for translation")
+        await self._set_translation_config(enabled="true", target_language="zh-CN")
+
+        captured = {}
+
+        async def fake_prepare_articles_for_scoring(db, batch):
+            translated = []
+            for item in batch:
+                translated.append(
+                    {
+                        **item,
+                        "title": "OpenAI 发布新 API",
+                        "description": "面向中文用户的翻译简介",
+                    }
+                )
+            return translated
+
+        def fake_call_llm(messages, config):
+            captured["messages"] = messages
+            return json.dumps([{"id": article_id, "score": 91}])
+
+        with patch("app.services.translator.prepare_articles_for_scoring", side_effect=fake_prepare_articles_for_scoring), \
+             patch("app.services.ai_scorer._call_llm", side_effect=fake_call_llm):
+            async with self.session_factory() as session:
+                summary = await score_unscored_articles(session)
+
+        self.assertEqual(summary["scored"], 1)
+        self.assertIn("标题: OpenAI 发布新 API", captured["messages"][1]["content"])
+        self.assertIn("简介: 面向中文用户的翻译简介", captured["messages"][1]["content"])
 
 
 if __name__ == "__main__":
