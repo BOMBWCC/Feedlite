@@ -48,6 +48,7 @@ class Article(Base):
     created_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat())
     
     feed = relationship("Feed", back_populates="articles")
+    chunks = relationship("ArticleChunk", back_populates="article")
 
 class AppConfig(Base):
     __tablename__ = "app_config"
@@ -83,3 +84,22 @@ class ProfileHistory(Base):
     created_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat(), nullable=False)
 
     user = relationship("User", back_populates="profile_histories")
+
+
+class ArticleChunk(Base):
+    __tablename__ = "article_chunks"
+
+    id = Column(Integer, primary_key=True, index=True)
+    article_id = Column(Integer, ForeignKey("articles.id"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    content = Column(Text, nullable=False)
+    search_text = Column(Text, default="", nullable=False)
+    language = Column(Text)
+    char_count = Column(Integer, default=0, nullable=False)
+    token_count = Column(Integer, default=0, nullable=False)
+    source_title = Column(Text)
+    source_description = Column(Text)
+    published = Column(Text, nullable=False)
+    created_at = Column(Text, default=lambda: datetime.now(timezone.utc).isoformat(), nullable=False)
+
+    article = relationship("Article", back_populates="chunks")

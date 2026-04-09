@@ -38,6 +38,9 @@ PROFILER_MODEL=gpt-4o-mini
 PROFILER_API_BASE=https://api.openai.com/v1
 PROFILER_API_KEY=your-profiler-key
 
+# 可选：给 OpenClaw / 内部 AI 检索接口使用
+RAG_API_KEY=your-rag-api-key
+
 # 可选：仅 AI 请求走代理
 AI_SPECIFIC_PROXY=
 ```
@@ -66,6 +69,37 @@ pip install -r requirements.txt
 uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+### 5. OpenClaw 接入
+
+如果要把 Feedlite 当作 OpenClaw 的私有 RAG 知识源，最少只需要配置一个额外环境变量：
+
+```env
+RAG_API_KEY=your-rag-api-key
+```
+
+OpenClaw 调用时带上请求头：
+
+```text
+X-API-Key: <RAG_API_KEY>
+```
+
+第一版建议按这条链路接入：
+
+1. 调用 `/api/rag/search?q=...` 获取候选 chunk
+2. 取前几个 `chunk_id` 调用 `/api/rag/context`
+3. 将返回的上下文拼进 OpenClaw prompt
+4. 用模型生成最终回答，并附来源链接
+
+示例：
+
+```bash
+curl -H "X-API-Key: ${RAG_API_KEY}" \
+  "http://127.0.0.1:8000/api/rag/search?q=openai&limit=8&days=30"
+
+curl -H "X-API-Key: ${RAG_API_KEY}" \
+  "http://127.0.0.1:8000/api/rag/context?chunk_id=11&chunk_id=12&window=1"
+```
+
 ## 使用说明
 
 1. **添加订阅**：点击“订阅管理”，输入 URL 后先点击“预览”，确认内容无误后选择分类并添加。
@@ -73,6 +107,7 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 3. **自动同步**：系统会定时抓取 RSS、按需翻译标题 / 简介，并执行 AI 打分。
 4. **搜索**：搜索框支持中文关键词、中英混合文本、正文命中和搜索态高亮展示。
 5. **调度时间**：RSS 抓取支持 `config.yml` 中配置固定 UTC 时间点；用户画像默认每周一 UTC `00:00` 生成，也可在 `config.yml` 中调整。
+6. **RAG 检索接口**：可通过 `RAG_API_KEY` 保护 `/api/rag/search`，供 OpenClaw 等内部 AI 调用；支持 `category` 过滤，默认按最近 30 天窗口检索，传 `days=0` 可关闭时间窗口。
 
 ## 技术栈
 

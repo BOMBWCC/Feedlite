@@ -34,3 +34,21 @@ async def verify_token(request: Request):
             status_code=status.HTTP_401_UNAUTHORIZED, 
             detail="Could not validate credentials"
         )
+
+
+async def verify_rag_api_key(request: Request):
+    """Dependency to check the dedicated API key for RAG endpoints."""
+    expected_key = os.getenv("RAG_API_KEY", "").strip()
+    if not expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="RAG API key is not configured",
+        )
+
+    provided_key = (request.headers.get("X-API-Key") or "").strip()
+    if not provided_key or provided_key != expected_key:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid RAG API key",
+        )
+    return True

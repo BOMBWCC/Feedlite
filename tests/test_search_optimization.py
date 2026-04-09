@@ -68,7 +68,7 @@ class SearchOptimizationTestCase(unittest.IsolatedAsyncioTestCase):
                 link=f"https://example.com/{title}-{feed_id}",
                 description=description,
                 content=content,
-                search_text=build_search_text(title, description, content),
+                search_text=build_search_text(title, description),
                 published=datetime.now(timezone.utc).isoformat(),
                 status=status,
             )
@@ -92,7 +92,7 @@ class SearchOptimizationTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("正文", search_text)
         self.assertEqual(query.split(), ["openai", "gpt", "5", "4", "中文", "搜索", "中文搜索"])
 
-    async def test_search_articles_matches_title_description_content_and_category(self):
+    async def test_search_articles_matches_title_description_and_category(self):
         await self._create_article(
             feed_id=self.feed_a_id,
             title="OpenAI 发布搜索优化方案",
@@ -107,18 +107,16 @@ class SearchOptimizationTestCase(unittest.IsolatedAsyncioTestCase):
         )
 
         async with self.session_factory() as session:
-            rows = await search_articles(q="jieba", limit=20, category=None, db=session)
             tech_rows = await search_articles(q='OpenAI !!!', limit=20, category=2, db=session)
             world_rows = await search_articles(q="伊朗局势", limit=20, category=1, db=session)
+            content_rows = await search_articles(q="jieba", limit=20, category=None, db=session)
 
-        self.assertEqual(len(rows), 1)
-        self.assertEqual(rows[0]["category"], 2)
-        self.assertIn("jieba", rows[0]["search_excerpt"])
         self.assertEqual(len(tech_rows), 1)
         self.assertEqual(tech_rows[0]["category"], 2)
         self.assertIn("openai", tech_rows[0]["search_excerpt"].lower())
         self.assertEqual(len(world_rows), 1)
         self.assertEqual(world_rows[0]["category"], 1)
+        self.assertEqual(content_rows, [])
 
     async def test_fts_triggers_keep_search_results_in_sync_after_insert_update_delete(self):
         article_id = await self._create_article(
@@ -139,7 +137,7 @@ class SearchOptimizationTestCase(unittest.IsolatedAsyncioTestCase):
                 .values(
                     title="更新后的中文标题",
                     content="现在正文包含深度搜索能力",
-                    search_text=build_search_text("更新后的中文标题", "初始简介", "现在正文包含深度搜索能力"),
+                    search_text=build_search_text("更新后的中文标题", "初始简介"),
                 )
             )
             await session.commit()
@@ -147,7 +145,7 @@ class SearchOptimizationTestCase(unittest.IsolatedAsyncioTestCase):
         async with self.session_factory() as session:
             updated_rows = await search_articles(q="深度搜索", limit=20, category=None, db=session)
             old_rows = await search_articles(q="最初", limit=20, category=None, db=session)
-        self.assertEqual(len(updated_rows), 1)
+        self.assertEqual(updated_rows, [])
         self.assertEqual(old_rows, [])
 
         async with self.session_factory() as session:

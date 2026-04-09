@@ -15,7 +15,7 @@ from app.services.scheduler import start_scheduler, stop_scheduler
 from fastapi import Depends
 
 # 路由
-from app.routers import feeds, sources, profile, auth
+from app.routers import feeds, sources, profile, auth, rag
 from app.auth_deps import verify_token
 
 
@@ -63,6 +63,7 @@ app.include_router(auth.router)
 app.include_router(feeds.router, dependencies=auth_dependencies)
 app.include_router(sources.router, dependencies=auth_dependencies)
 app.include_router(profile.router, dependencies=auth_dependencies)
+app.include_router(rag.router)
 
 
 # --- 健康检查端点 ---

@@ -107,3 +107,46 @@ CREATE TABLE IF NOT EXISTS profile_history (
 );
 
 CREATE INDEX IF NOT EXISTS idx_profile_history_user_created ON profile_history (user_id, created_at DESC, id DESC);
+
+-- 9. RAG chunk 主表
+CREATE TABLE IF NOT EXISTS article_chunks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    article_id INTEGER NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    search_text TEXT NOT NULL DEFAULT '',
+    language TEXT,
+    char_count INTEGER NOT NULL DEFAULT 0,
+    token_count INTEGER NOT NULL DEFAULT 0,
+    source_title TEXT,
+    source_description TEXT,
+    published TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+    FOREIGN KEY (article_id) REFERENCES articles (id),
+    UNIQUE(article_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_article_chunks_article_id ON article_chunks (article_id);
+CREATE INDEX IF NOT EXISTS idx_article_chunks_published_id ON article_chunks (published DESC, id DESC);
+
+-- 10. RAG chunk FTS 表
+CREATE VIRTUAL TABLE IF NOT EXISTS article_chunks_fts USING fts5(
+    search_text,
+    content='article_chunks',
+    content_rowid='id',
+    tokenize='unicode61'
+);
+
+-- 11. 触发器：同步 chunk FTS 索引
+CREATE TRIGGER IF NOT EXISTS article_chunks_ai AFTER INSERT ON article_chunks BEGIN
+  INSERT INTO article_chunks_fts(rowid, search_text) VALUES (new.id, new.search_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS article_chunks_au AFTER UPDATE ON article_chunks BEGIN
+  INSERT INTO article_chunks_fts(article_chunks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+  INSERT INTO article_chunks_fts(rowid, search_text) VALUES (new.id, new.search_text);
+END;
+
+CREATE TRIGGER IF NOT EXISTS article_chunks_ad AFTER DELETE ON article_chunks BEGIN
+  INSERT INTO article_chunks_fts(article_chunks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+END;

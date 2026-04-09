@@ -17,6 +17,7 @@ from sqlalchemy import select, update
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import Feed, Article
+from app.services.chunk_indexer import rebuild_article_chunks_for_article
 from app.services.search_index import build_search_text
 
 logger = logging.getLogger("feedlite.rss_fetcher")
@@ -62,7 +63,7 @@ def fetch_and_clean(
     feed_url: str,
     retention_hours: int = DEFAULT_RETENTION_HOURS,
     max_desc_len: int = 300,
-    max_content_len: int = 500,
+    max_content_len: int | None = None,
 ) -> dict:
     """
     抓取单个 RSS 源，返回清洗后的文章列表。
@@ -101,7 +102,7 @@ def fetch_and_clean(
         else:
             raw_content = raw_desc
         content = clean_html(raw_content)
-        if len(content) > max_content_len:
+        if max_content_len and len(content) > max_content_len:
             content = content[:max_content_len] + "..."
 
         # 时间过滤
@@ -133,6 +134,7 @@ async def deduplicate_and_store(
     返回实际新增的文章数量。
     """
     inserted = 0
+    inserted_links: list[str] = []
     for art in articles:
         stmt = (
             sqlite_insert(Article)
@@ -145,7 +147,6 @@ async def deduplicate_and_store(
                 search_text=build_search_text(
                     title=art["title"],
                     description=art["description"],
-                    content=art["content"],
                 ),
                 published=art["published"],
                 ai_score=0,
@@ -156,8 +157,26 @@ async def deduplicate_and_store(
         result = await db.execute(stmt)
         if result.rowcount > 0:
             inserted += 1
+            inserted_links.append(art["link"])
 
     await db.commit()
+
+    if not inserted_links:
+        return inserted
+
+    inserted_rows = await db.execute(
+        select(Article.id)
+        .where(Article.link.in_(inserted_links))
+        .order_by(Article.id.asc())
+    )
+    inserted_article_ids = list(inserted_rows.scalars().all())
+
+    for article_id in inserted_article_ids:
+        try:
+            await rebuild_article_chunks_for_article(db, article_id)
+        except Exception as exc:
+            logger.exception("chunk 生成失败 [article_id=%s]: %s", article_id, exc)
+
     return inserted
 
 

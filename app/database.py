@@ -215,7 +215,6 @@ async def _rebuild_search_index(db):
                 build_search_text(
                     title=row[1] or "",
                     description=row[2] or "",
-                    content=row[3] or "",
                 ),
                 row[0],
             )
@@ -249,6 +248,82 @@ async def _rebuild_search_index(db):
     await db.commit()
     print("✅ Rebuilt FTS5 search index with search_text backfill")
 
+
+async def _ensure_article_chunks_schema(db):
+    """补齐 article_chunks 结构，并建立索引。"""
+    await db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS article_chunks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            article_id INTEGER NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            content TEXT NOT NULL,
+            search_text TEXT NOT NULL DEFAULT '',
+            language TEXT,
+            char_count INTEGER NOT NULL DEFAULT 0,
+            token_count INTEGER NOT NULL DEFAULT 0,
+            source_title TEXT,
+            source_description TEXT,
+            published TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+            FOREIGN KEY (article_id) REFERENCES articles (id),
+            UNIQUE(article_id, chunk_index)
+        )
+        """
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_article_chunks_article_id ON article_chunks (article_id)"
+    )
+    await db.execute(
+        "CREATE INDEX IF NOT EXISTS idx_article_chunks_published_id ON article_chunks (published DESC, id DESC)"
+    )
+    await db.commit()
+
+
+async def _rebuild_article_chunk_index(db):
+    """建立 article_chunks FTS 与触发器，不主动生成 chunk 数据。"""
+    await db.execute("DROP TRIGGER IF EXISTS article_chunks_ai")
+    await db.execute("DROP TRIGGER IF EXISTS article_chunks_au")
+    await db.execute("DROP TRIGGER IF EXISTS article_chunks_ad")
+    await db.execute("DROP TABLE IF EXISTS article_chunks_fts")
+    await db.commit()
+
+    await db.execute(
+        """
+        CREATE VIRTUAL TABLE IF NOT EXISTS article_chunks_fts USING fts5(
+            search_text,
+            content='article_chunks',
+            content_rowid='id',
+            tokenize='unicode61'
+        )
+        """
+    )
+    await db.execute("INSERT INTO article_chunks_fts(article_chunks_fts) VALUES ('rebuild')")
+    await db.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS article_chunks_ai AFTER INSERT ON article_chunks BEGIN
+          INSERT INTO article_chunks_fts(rowid, search_text) VALUES (new.id, new.search_text);
+        END;
+        """
+    )
+    await db.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS article_chunks_au AFTER UPDATE ON article_chunks BEGIN
+          INSERT INTO article_chunks_fts(article_chunks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+          INSERT INTO article_chunks_fts(rowid, search_text) VALUES (new.id, new.search_text);
+        END;
+        """
+    )
+    await db.execute(
+        """
+        CREATE TRIGGER IF NOT EXISTS article_chunks_ad AFTER DELETE ON article_chunks BEGIN
+          INSERT INTO article_chunks_fts(article_chunks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+        END;
+        """
+    )
+    await db.commit()
+    print("✅ Rebuilt article_chunks FTS index and triggers")
+
 # 初始化数据库结构 (冷启动调用)
 async def init_db():
     if not os.path.exists(SCHEMA_PATH):
@@ -275,6 +350,8 @@ async def init_db():
         await _migrate_article_translation_columns(db)
         await _sync_app_config_defaults(db)
         await _rebuild_search_index(db)
+        await _ensure_article_chunks_schema(db)
+        await _rebuild_article_chunk_index(db)
 
         # 2. 启动时将 .env 中的 AI 配置按角色写入数据库，确保重启后数据库与当前环境一致。
         models_to_upsert = []
