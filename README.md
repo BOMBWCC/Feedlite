@@ -27,6 +27,7 @@ cd Feedlite
 ```env
 ADMIN_USERNAME=admin
 ADMIN_PASSWORD=your-password
+DISABLE_DOCS=false
 
 SCORER_PROVIDER=openai
 SCORER_MODEL=gpt-4o-mini

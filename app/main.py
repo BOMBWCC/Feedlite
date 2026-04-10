@@ -19,6 +19,10 @@ from app.routers import feeds, sources, profile, auth, rag
 from app.auth_deps import verify_token
 
 
+def _env_flag_enabled(name: str) -> bool:
+    return os.getenv(name, "").lower() in {"1", "true", "yes", "on"}
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化数据库和调度器，关闭时释放资源"""
@@ -42,6 +46,9 @@ app = FastAPI(
     description="AI 驱动的轻量级个人 RSS 信息流阅读器",
     version="2.4",
     lifespan=lifespan,
+    docs_url=None if _env_flag_enabled("DISABLE_DOCS") else "/docs",
+    redoc_url=None if _env_flag_enabled("DISABLE_DOCS") else "/redoc",
+    openapi_url=None if _env_flag_enabled("DISABLE_DOCS") else "/openapi.json",
 )
 
 # CORS 设置（开发阶段允许所有来源）
@@ -55,7 +62,7 @@ app.add_middleware(
 
 # 本地排障时可通过 DISABLE_AUTH=true 临时关闭接口鉴权，避免每次手动取 token。
 auth_dependencies = []
-if os.getenv("DISABLE_AUTH", "").lower() not in {"1", "true", "yes", "on"}:
+if not _env_flag_enabled("DISABLE_AUTH"):
     auth_dependencies = [Depends(verify_token)]
 
 # --- 注册 API 路由 ---
