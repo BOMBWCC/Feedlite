@@ -42,6 +42,8 @@ class Article(Base):
     translation_updated_at = Column(Text)
     published = Column(Text, nullable=False)
     ai_score = Column(Integer, default=0)
+    decision_type = Column(Text, default="recommend")
+    recommend_level = Column(Text, default="low")
     feedback = Column(Integer, default=0)
     feedback_updated_at = Column(Text)
     status = Column(Text, default="active")

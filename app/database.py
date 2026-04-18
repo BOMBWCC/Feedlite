@@ -138,7 +138,7 @@ def _load_runtime_defaults() -> dict:
 
 
 async def _migrate_article_translation_columns(db):
-    """兼容历史数据库：补齐翻译相关字段。"""
+    """兼容历史数据库：补齐翻译与展示决策相关字段。"""
     cursor = await db.execute("PRAGMA table_info(articles)")
     article_columns = {row[1] for row in await cursor.fetchall()}
     expected_columns = {
@@ -147,6 +147,8 @@ async def _migrate_article_translation_columns(db):
         "translation_language": "ALTER TABLE articles ADD COLUMN translation_language TEXT",
         "translation_status": "ALTER TABLE articles ADD COLUMN translation_status TEXT DEFAULT 'pending'",
         "translation_updated_at": "ALTER TABLE articles ADD COLUMN translation_updated_at TEXT",
+        "decision_type": "ALTER TABLE articles ADD COLUMN decision_type TEXT DEFAULT 'recommend'",
+        "recommend_level": "ALTER TABLE articles ADD COLUMN recommend_level TEXT DEFAULT 'low'",
     }
 
     for column, ddl in expected_columns.items():
@@ -154,6 +156,30 @@ async def _migrate_article_translation_columns(db):
             await db.execute(ddl)
             await db.commit()
             print(f"✅ Added missing column: articles.{column}")
+
+    await db.execute(
+        """
+        UPDATE articles
+        SET decision_type = CASE
+            WHEN status = 'filtered' THEN 'filtered'
+            WHEN ai_score >= 60 THEN 'profile'
+            ELSE 'recommend'
+        END
+        WHERE decision_type IS NULL OR decision_type = ''
+        """
+    )
+    await db.execute(
+        """
+        UPDATE articles
+        SET recommend_level = CASE
+            WHEN ai_score >= 85 THEN 'high'
+            WHEN ai_score >= 60 THEN 'medium'
+            ELSE 'low'
+        END
+        WHERE recommend_level IS NULL OR recommend_level = ''
+        """
+    )
+    await db.commit()
 
 
 async def _sync_app_config_defaults(db):

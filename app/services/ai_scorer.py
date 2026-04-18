@@ -6,6 +6,7 @@ AI Scorer Service
 import json
 import logging
 import os
+import re
 
 import requests
 import yaml
@@ -161,10 +162,10 @@ def _build_scoring_prompt(articles: list[dict], profile: dict) -> list[dict]:
     priority_rules = """
 
 优先级规则：
-1. 用户手工维护的标签（Tag）优先级最高，必须优先满足。
-2. 用户画像用于补充长期兴趣与排斥方向，优先级次于 Tag。
-3. 文章评分应建立在 Tag 与用户画像都被满足的前提下，再判断相关性与重要性。
-4. 不要只根据新闻热度打高分；若与 Tag 或用户画像冲突，应显著降分。
+1. 用户手工维护的标签（Tag）优先级最高。只要文章明显命中 Tag，原则上应保留展示，不要轻易判为低分噪音。
+2. 用户画像用于补充长期兴趣与排斥方向，优先级次于 Tag，主要用于判断“Tag 未命中时，是否仍值得保留”。
+3. AI 分数更接近“推荐程度”而不是简单生杀权。Tag 命中文章应在保留前提下，再区分推荐强弱。
+4. 不要只根据新闻热度打高分；若与 Tag 和用户画像都不相关，应显著降分。
 """.rstrip()
 
     system_prompt += priority_rules
@@ -172,18 +173,22 @@ def _build_scoring_prompt(articles: list[dict], profile: dict) -> list[dict]:
     system_prompt += """
 
 评分规则：
-- 90-100: 与用户兴趣高度相关且具有重要时效性的内容
-- 70-89: 与用户兴趣相关的优质内容
-- 50-69: 有一定参考价值的一般内容
-- 30-49: 与用户兴趣关联较弱
-- 0-29: 广告、噪音、无关内容
+- 90-100: 与 Tag 或用户画像高度契合，且具有明显重要性或新鲜度
+- 70-89: 与 Tag 明显相关，或虽未命中 Tag 但很符合用户画像，值得优先推荐
+- 50-69: 可展示的普通内容，尤其适合“命中 Tag 但不算特别重要”的文章
+- 30-49: 相关性较弱，但仍可能作为补充信息保留
+- 0-29: 广告、噪音、明显无关内容
 
 请严格按照以下 JSON 格式返回，不要包含其他文字：
 [{"id": <文章ID>, "score": <0-100整数>}, ...]"""
 
     # 构建文章列表
     articles_text = "\n".join([
-        f"[ID:{a['id']}] 标题: {a['title']}\n简介: {a['description'][:150] if a.get('description') else '无'}"
+        (
+            f"[ID:{a['id']}]"
+            f"{f' 已命中Tag: {', '.join(a['matched_tags'])}' if a.get('matched_tags') else ''}"
+            f"\n标题: {a['title']}\n简介: {a['description'][:150] if a.get('description') else '无'}"
+        )
         for a in articles
     ])
 
@@ -191,6 +196,38 @@ def _build_scoring_prompt(articles: list[dict], profile: dict) -> list[dict]:
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"请为以下 {len(articles)} 篇文章打分：\n\n{articles_text}"},
     ]
+
+
+def _parse_tags(active_tags: str) -> list[str]:
+    return [tag.strip() for tag in (active_tags or "").split(",") if tag.strip()]
+
+
+def _normalize_for_tag_match(text: str) -> str:
+    return re.sub(r"\s+", " ", (text or "").strip()).casefold()
+
+
+def _article_match_tags(article: dict, tags: list[str]) -> list[str]:
+    if not tags:
+        return []
+
+    haystack = " ".join(
+        filter(
+            None,
+            [
+                article.get("title", ""),
+                article.get("description", ""),
+                article.get("translated_title", ""),
+                article.get("translated_description", ""),
+            ],
+        )
+    )
+    normalized_haystack = _normalize_for_tag_match(haystack)
+    matched_tags = []
+    for tag in tags:
+        normalized_tag = _normalize_for_tag_match(tag)
+        if normalized_tag and normalized_tag in normalized_haystack:
+            matched_tags.append(tag)
+    return matched_tags
 
 
 # ─── LLM API 调用 ────────────────────────────────────
@@ -350,6 +387,16 @@ def _parse_scores(raw_response: str) -> dict[int, int]:
 # ─── 核心：批量打分 ──────────────────────────────────
 
 SCORE_THRESHOLD = 30  # 低于此分数的文章标记为 filtered
+TAG_MATCH_SCORE_FLOOR = 60  # 命中 Tag 的文章至少保留为可展示文章
+PROFILE_MATCH_SCORE_THRESHOLD = 60
+
+
+def _score_to_recommend_level(score: int) -> str:
+    if score >= 85:
+        return "high"
+    if score >= 60:
+        return "medium"
+    return "low"
 
 async def score_unscored_articles(db: AsyncSession) -> dict:
     """
@@ -374,6 +421,7 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
         return summary
 
     profile = await _get_user_profile(db)
+    profile_tags = _parse_tags(profile.get("active_tags", ""))
 
     # 2. 查找待打分文章
     stmt = (
@@ -408,6 +456,7 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
             "translation_language": r.translation_language or "",
             "translation_status": r.translation_status or "",
             "translation_updated_at": r.translation_updated_at,
+            "matched_tags": [],
         }
         for r in rows
     ]
@@ -425,6 +474,9 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
             except Exception as translation_error:
                 logger.exception("批次翻译失败 (第 %s 批): %s", i // batch_size + 1, translation_error)
 
+            for item in batch:
+                item["matched_tags"] = _article_match_tags(item, profile_tags)
+
             messages = _build_scoring_prompt(batch, profile)
             raw_response = _call_llm(messages, ai_config)
             scores = _parse_scores(raw_response)
@@ -435,11 +487,32 @@ async def score_unscored_articles(db: AsyncSession) -> dict:
                 score = scores.get(aid)
 
                 if score is not None:
-                    new_status = "filtered" if score < SCORE_THRESHOLD else "active"
+                    decision_type = "recommend"
+                    recommend_level = _score_to_recommend_level(score)
+                    if art.get("matched_tags"):
+                        score = max(score, TAG_MATCH_SCORE_FLOOR)
+                        decision_type = "tag"
+                        recommend_level = _score_to_recommend_level(score)
+                        new_status = "active"
+                    else:
+                        if score < SCORE_THRESHOLD:
+                            decision_type = "filtered"
+                            new_status = "filtered"
+                        elif score >= PROFILE_MATCH_SCORE_THRESHOLD:
+                            decision_type = "profile"
+                            new_status = "active"
+                        else:
+                            decision_type = "recommend"
+                            new_status = "active"
                     await db.execute(
                         update(Article)
                         .where(Article.id == aid)
-                        .values(ai_score=score, status=new_status)
+                        .values(
+                            ai_score=score,
+                            status=new_status,
+                            decision_type=decision_type,
+                            recommend_level=recommend_level,
+                        )
                     )
                     summary["scored"] += 1
                     if new_status == "filtered":

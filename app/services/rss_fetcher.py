@@ -7,9 +7,11 @@ import re
 import html as html_module
 import calendar
 import logging
+import os
 
 import feedparser
 import requests
+import yaml
 from datetime import datetime, timezone, timedelta
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -30,6 +32,38 @@ FETCH_TIMEOUT = 15        # 秒
 
 
 # ─── 工具函数 ────────────────────────────────────────
+
+_config_cache = None
+
+
+def _load_config() -> dict:
+    """从 config.yml 加载静态配置（带缓存）。"""
+    global _config_cache
+    if _config_cache is not None:
+        return _config_cache
+
+    config_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+        "config.yml",
+    )
+    try:
+        with open(config_path, "r", encoding="utf-8") as f:
+            _config_cache = yaml.safe_load(f) or {}
+    except Exception:
+        _config_cache = {}
+    return _config_cache
+
+
+def _get_retention_hours(override: int | None = None) -> int:
+    """优先使用显式传参，否则回退到 config.yml，再回退到代码默认值。"""
+    if override is not None:
+        return override
+
+    cfg = _load_config()
+    try:
+        return int(cfg.get("fetch", {}).get("retention_hours", DEFAULT_RETENTION_HOURS))
+    except (TypeError, ValueError):
+        return DEFAULT_RETENTION_HOURS
 
 def clean_html(raw: str) -> str:
     """清洗 HTML 标签并解码实体字符"""
@@ -61,7 +95,7 @@ def parse_published_time(entry) -> datetime | None:
 
 def fetch_and_clean(
     feed_url: str,
-    retention_hours: int = DEFAULT_RETENTION_HOURS,
+    retention_hours: int | None = None,
     max_desc_len: int = 300,
     max_content_len: int | None = None,
 ) -> dict:
@@ -69,6 +103,7 @@ def fetch_and_clean(
     抓取单个 RSS 源，返回清洗后的文章列表。
     自动过滤超过 retention_hours 的旧文章。
     """
+    retention_hours = _get_retention_hours(retention_hours)
     now_utc = datetime.now(timezone.utc)
     cutoff = now_utc - timedelta(hours=retention_hours)
 
@@ -182,7 +217,7 @@ async def deduplicate_and_store(
 
 # ─── 核心：单源抓取流程（含熔断）────────────────────
 
-async def fetch_single_feed(db: AsyncSession, feed: Feed, retention_hours: int = DEFAULT_RETENTION_HOURS) -> dict:
+async def fetch_single_feed(db: AsyncSession, feed: Feed, retention_hours: int | None = None) -> dict:
     """
     抓取单个订阅源的完整流程：
     1. 调用 fetch_and_clean 抓取并清洗
@@ -241,11 +276,13 @@ async def fetch_single_feed(db: AsyncSession, feed: Feed, retention_hours: int =
 
 # ─── 顶层：全量同步 ──────────────────────────────────
 
-async def sync_all_feeds(db: AsyncSession, retention_hours: int = DEFAULT_RETENTION_HOURS) -> dict:
+async def sync_all_feeds(db: AsyncSession, retention_hours: int | None = None) -> dict:
     """
     遍历所有 active 状态的订阅源，依次抓取并入库。
     返回总体摘要 {"total_feeds", "total_fetched", "total_inserted", "errors": [...]}
     """
+    retention_hours = _get_retention_hours(retention_hours)
+
     # 查询所有活跃源
     stmt = select(Feed).where(Feed.status == "active")
     result = await db.execute(stmt)

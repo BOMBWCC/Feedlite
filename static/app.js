@@ -401,6 +401,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let offset = 0;
     const limit = 20;
     let isLoading = false;
+    let hasMoreArticles = true;
     let lastDateStr = "";
     let currentSearchQuery = "";
 
@@ -437,6 +438,11 @@ document.addEventListener('DOMContentLoaded', () => {
         return safeText.replace(pattern, '<mark class="search-highlight">$1</mark>');
     };
 
+    const getDisplayTitle = (article) => article.translated_title || article.title || '';
+
+    const getDisplayDescription = (article) =>
+        article.translated_description || article.description || '';
+
     const updateSearchState = (query = "") => {
         currentSearchQuery = query.trim();
         const searching = Boolean(currentSearchQuery);
@@ -449,17 +455,23 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (loadingTrigger) {
             loadingTrigger.textContent = searching ? 'All search results displayed' : 'Loading...';
+            loadingTrigger.style.display = searching ? 'none' : 'block';
         }
     };
 
     const resetFeedStream = () => {
         lastDateStr = "";
+        hasMoreArticles = true;
         const indicator = document.getElementById('pull-to-refresh');
         const loader = document.getElementById('loading');
         feedStream.innerHTML = '';
         if (searchState) feedStream.appendChild(searchState);
         if (indicator) feedStream.appendChild(indicator);
-        if (loader) feedStream.appendChild(loader);
+        if (loader) {
+            loader.style.display = 'block';
+            loader.textContent = 'Loading...';
+            feedStream.appendChild(loader);
+        }
     };
 
     const formatDate = (dateObj) => {
@@ -485,10 +497,22 @@ document.addEventListener('DOMContentLoaded', () => {
         return `${hh}:${mm}`;
     };
 
-    const getScoreClass = (score) => {
-        if (score >= 80) return 'high';
-        if (score >= 50) return 'mid';
-        return 'low';
+    const getDecisionMeta = (article) => {
+        const decisionType = article.decision_type || 'recommend';
+        const recommendLevel = article.recommend_level || 'low';
+
+        if (decisionType === 'tag') {
+            return { icon: 'tags', className: 'tag', title: 'TAG 命中' };
+        }
+        if (decisionType === 'profile') {
+            return { icon: 'user-round', className: 'profile', title: '画像命中' };
+        }
+        if (decisionType === 'recommend') {
+            const icon = recommendLevel === 'high' ? 'sparkles' : (recommendLevel === 'medium' ? 'star' : 'plus');
+            const title = recommendLevel === 'high' ? 'AI 强推荐' : (recommendLevel === 'medium' ? 'AI 推荐' : 'AI 补充');
+            return { icon, className: `recommend ${recommendLevel}`, title };
+        }
+        return { icon: 'circle-off', className: 'filtered', title: '已过滤' };
     };
 
     const CATEGORY_MAP = {
@@ -514,19 +538,20 @@ document.addEventListener('DOMContentLoaded', () => {
             lastDateStr = dateStr;
         }
 
-        const score = Math.round(article.ai_score || 0);
-        const scoreClass = getScoreClass(score);
+        const decisionMeta = getDecisionMeta(article);
+        const displayTitle = getDisplayTitle(article);
+        const displayDescription = getDisplayDescription(article);
         const rawExcerpt = currentSearchQuery
-            ? (article.search_excerpt || article.description || article.content || 'No preview available')
-            : (article.description
-                ? (article.description.length > 120 ? article.description.substring(0, 120) + '...' : article.description)
+            ? (article.search_excerpt || displayDescription || article.content || 'No preview available')
+            : (displayDescription
+                ? (displayDescription.length > 120 ? displayDescription.substring(0, 120) + '...' : displayDescription)
                 : 'No preview available');
         const excerptHtml = currentSearchQuery
             ? highlightText(rawExcerpt, currentSearchQuery)
             : escapeHtml(rawExcerpt);
         const titleHtml = currentSearchQuery
-            ? highlightText(article.title, currentSearchQuery)
-            : escapeHtml(article.title);
+            ? highlightText(displayTitle, currentSearchQuery)
+            : escapeHtml(displayTitle);
 
         const categoryData = CATEGORY_MAP[article.category] || { name: 'General', icon: 'layers' };
 
@@ -538,7 +563,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
         };
-        const escapedTitle = escapeAttr(article.title);
+        const escapedTitle = escapeAttr(displayTitle);
         const escapedDesc = escapeAttr(rawExcerpt || 'No preview available');
 
         html += `
@@ -550,7 +575,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="header-right-meta">
                         <span class="pub-time">${formatTime(pubDate)}</span>
-                        <span class="ai-score ${scoreClass}">${score}</span>
+                        <span class="decision-chip ${decisionMeta.className}" title="${decisionMeta.title}"><i data-lucide="${decisionMeta.icon}"></i></span>
                         <div class="action-menu-container">
                             <button class="btn-more-options" title="More options"><i data-lucide="more-horizontal"></i></button>
                             <div class="action-dropdown">
@@ -572,6 +597,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loadArticles = async (reset = false) => {
         if (isLoading) return;
         if (currentSearchQuery && !reset) return;
+        if (!reset && !hasMoreArticles) return;
         isLoading = true;
 
         if (reset) {
@@ -594,12 +620,25 @@ document.addEventListener('DOMContentLoaded', () => {
                     feedStream.insertBefore(fragment.firstChild, loader);
                 }
                 offset += articles.length;
+                hasMoreArticles = articles.length === limit;
+                if (loadingTrigger) {
+                    loadingTrigger.style.display = hasMoreArticles ? 'block' : 'none';
+                }
                 lucide.createIcons();
             } else if (reset) {
+                hasMoreArticles = false;
+                if (loadingTrigger) {
+                    loadingTrigger.style.display = 'none';
+                }
                 const emptyMsg = document.createElement('div');
                 emptyMsg.className = 'loading-trigger';
                 emptyMsg.textContent = 'No new content. Click Logo to refresh.';
                 feedStream.insertBefore(emptyMsg, loader);
+            } else {
+                hasMoreArticles = false;
+                if (loadingTrigger) {
+                    loadingTrigger.style.display = 'none';
+                }
             }
         } catch (e) {
             console.error("Failed to load articles:", e);
@@ -616,6 +655,9 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await apiFetch(`/api/articles/search?q=${encodeURIComponent(query)}`);
             const articles = await res.json();
+            if (loadingTrigger) {
+                loadingTrigger.style.display = 'none';
+            }
 
             if (articles.length > 0) {
                 const fragment = document.createElement('div');

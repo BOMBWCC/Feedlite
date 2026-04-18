@@ -412,16 +412,30 @@ body.light-mode .main-header {
     color: var(--text-muted);
 }
 
-/* AI Score Badge - 调淡效果 */
-.ai-score {
+/* Decision Badge */
+.ai-score,
+.decision-chip {
     display: inline-flex;
     align-items: center;
+    justify-content: center;
     padding: 1px 5px;
     border-radius: 4px;
     font-weight: 500; /* 调细字体 */
     font-size: 0.65rem;
     letter-spacing: -0.2px;
     opacity: 0.75; /* 整体调淡 */
+}
+
+.decision-chip {
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 999px;
+}
+
+.decision-chip svg {
+    width: 12px;
+    height: 12px;
 }
 
 .ai-score.high {
@@ -438,6 +452,36 @@ body.light-mode .main-header {
 .ai-score.low {
     background: var(--score-low-bg);
     color: var(--score-low-text);
+}
+
+.decision-chip.tag {
+    background: rgba(255, 180, 0, 0.16);
+    color: #f7b500;
+}
+
+.decision-chip.profile {
+    background: rgba(68, 160, 255, 0.16);
+    color: #6eb4ff;
+}
+
+.decision-chip.recommend.high {
+    background: rgba(29, 205, 159, 0.16);
+    color: #39d8a8;
+}
+
+.decision-chip.recommend.medium {
+    background: rgba(120, 214, 82, 0.16);
+    color: #89db63;
+}
+
+.decision-chip.recommend.low {
+    background: rgba(168, 176, 196, 0.16);
+    color: var(--text-muted);
+}
+
+.decision-chip.filtered {
+    background: rgba(255, 95, 86, 0.16);
+    color: #ff8f87;
 }
 
 .article-title {

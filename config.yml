@@ -5,7 +5,7 @@ fetch:
   interval_hours: 12        # 未设置 fixed_times_utc 时使用的抓取间隔（小时）
   fixed_times_utc: []       # 例如 [0, 12, 18]，表示每天 UTC 00:00 / 12:00 / 18:00 抓取；非空时优先于 interval_hours
   batch_size: 50            # AI 批处理每组篇数
-  retention_hours: 12       # 历史遗弃窗口（丢弃早于此时间的文章）
+  retention_hours: 48       # 历史遗弃窗口（丢弃早于此时间的文章）
 
 # 用户画像调度（UTC）
 profile:

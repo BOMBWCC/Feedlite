@@ -29,6 +29,8 @@ async def get_articles(
             Article.translation_status,
             Article.published,
             Article.ai_score,
+            Article.decision_type,
+            Article.recommend_level,
             Article.feedback,
             Article.feedback_updated_at,
             Article.created_at,
@@ -56,6 +58,8 @@ async def get_articles(
             "translation_status": row.translation_status,
             "published": row.published,
             "ai_score": row.ai_score,
+            "decision_type": row.decision_type,
+            "recommend_level": row.recommend_level,
             "feedback": row.feedback,
             "feedback_updated_at": row.feedback_updated_at,
             "created_at": row.created_at,
@@ -83,7 +87,8 @@ async def search_articles(
         SELECT a.id, a.title, a.link, a.description, a.translated_title,
                a.translated_description, a.translation_language, a.translation_status,
                a.content, a.published,
-               a.ai_score, a.feedback, a.feedback_updated_at, a.created_at, f.category
+               a.ai_score, a.decision_type, a.recommend_level,
+               a.feedback, a.feedback_updated_at, a.created_at, f.category
         FROM articles_fts fts
         JOIN articles a ON a.id = fts.rowid
         JOIN feeds f ON a.feed_id = f.id
@@ -120,6 +125,8 @@ async def search_articles(
             "translation_status": row.translation_status,
             "published": row.published,
             "ai_score": row.ai_score,
+            "decision_type": row.decision_type,
+            "recommend_level": row.recommend_level,
             "feedback": row.feedback,
             "feedback_updated_at": row.feedback_updated_at,
             "created_at": row.created_at,

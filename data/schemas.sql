@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS articles (
     translation_updated_at TEXT,
     published TEXT NOT NULL,
     ai_score INTEGER DEFAULT 0,
+    decision_type TEXT DEFAULT 'recommend',
+    recommend_level TEXT DEFAULT 'low',
     feedback INTEGER DEFAULT 0,
     feedback_updated_at TEXT,
     status TEXT DEFAULT 'active',
