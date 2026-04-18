@@ -186,8 +186,8 @@ def _build_scoring_prompt(articles: list[dict], profile: dict) -> list[dict]:
     articles_text = "\n".join([
         (
             f"[ID:{a['id']}]"
-            f"{f' 已命中Tag: {', '.join(a['matched_tags'])}' if a.get('matched_tags') else ''}"
-            f"\n标题: {a['title']}\n简介: {a['description'][:150] if a.get('description') else '无'}"
+            + (f" 已命中Tag: {', '.join(a['matched_tags'])}" if a.get('matched_tags') else "")
+            + f"\n标题: {a['title']}\n简介: {a['description'][:150] if a.get('description') else '无'}"
         )
         for a in articles
     ])
