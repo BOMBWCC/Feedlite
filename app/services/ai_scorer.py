@@ -242,6 +242,7 @@ def _call_llm(messages: list[dict], config: dict) -> str:
     api_base = config.get("api_base", "").rstrip("/")
     model = config.get("model", "gpt-3.5-turbo")
     provider = config.get("provider", "openai").lower()
+    max_tokens = int(config.get("max_tokens", 2000) or 2000)
     
     # 强正名：确保 google 或 gemini 都能进入原生分支
     if provider in ["gemini", "google"]:
@@ -270,7 +271,7 @@ def _call_llm(messages: list[dict], config: dict) -> str:
             else:
                 anthropic_msgs.append({"role": m["role"], "content": m["content"]})
                 
-        payload = {"model": model, "messages": anthropic_msgs, "max_tokens": 2000, "temperature": 0.3}
+        payload = {"model": model, "messages": anthropic_msgs, "max_tokens": max_tokens, "temperature": 0.3}
         if system_prompt.strip():
             payload["system"] = system_prompt.strip()
             
@@ -308,7 +309,7 @@ def _call_llm(messages: list[dict], config: dict) -> str:
                 contents.append({"role": role, "parts": [{"text": m["content"]}]})
         
         # 注意：Gemini 官方 REST API 使用 systemInstruction (驼峰)
-        payload = {"contents": contents, "generationConfig": {"temperature": 0.3, "maxOutputTokens": 2000}}
+        payload = {"contents": contents, "generationConfig": {"temperature": 0.3, "maxOutputTokens": max_tokens}}
         if system_instruction:
             payload["systemInstruction"] = system_instruction
 
@@ -345,7 +346,7 @@ def _call_llm(messages: list[dict], config: dict) -> str:
             "model": model,
             "messages": messages,
             "temperature": 0.3,
-            "max_tokens": 2000,
+            "max_tokens": max_tokens,
         }
 
         resp = requests.post(endpoint, headers=headers, json=payload, timeout=60, proxies=config.get("proxies"))

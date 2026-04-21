@@ -15,6 +15,9 @@ from app.models import AppConfig, Article
 
 logger = logging.getLogger("feedlite.translator")
 
+TRANSLATION_BATCH_SIZE = 10
+TRANSLATION_MAX_TOKENS = 4000
+
 
 def _to_bool(value: str | bool | None, default: bool = False) -> bool:
     if isinstance(value, bool):
@@ -120,6 +123,62 @@ def _parse_translation_response(raw_response: str) -> dict[int, dict]:
     return result
 
 
+def _chunk_articles(articles: list[dict], chunk_size: int) -> list[list[dict]]:
+    return [articles[i:i + chunk_size] for i in range(0, len(articles), chunk_size)]
+
+
+def _merge_translations(raw_articles: list[dict], translated_map: dict[int, dict]) -> list[dict]:
+    merged = []
+    for article in raw_articles:
+        translated = translated_map.get(article["id"], {})
+        merged.append(
+            {
+                "id": article["id"],
+                "translated_title": (translated.get("translated_title") or article.get("title") or "").strip(),
+                "translated_description": (translated.get("translated_description") or article.get("description") or "").strip(),
+            }
+        )
+    return merged
+
+
+def _translate_articles_with_retry(
+    articles: list[dict],
+    config: dict,
+    ai_config: dict,
+    call_llm,
+) -> dict[int, dict]:
+    if not articles:
+        return {}
+
+    messages = _build_translation_prompt(articles, config)
+
+    try:
+        raw_response = call_llm(messages, ai_config)
+        translated_map = _parse_translation_response(raw_response)
+        return {
+            item["id"]: item
+            for item in _merge_translations(articles, translated_map)
+        }
+    except Exception as exc:
+        if len(articles) == 1:
+            article = articles[0]
+            logger.warning("文章翻译失败 (id=%s): %s", article["id"], exc)
+            return {}
+
+        split_size = max(1, len(articles) // 2)
+        logger.warning(
+            "翻译批次失败，缩小批次重试。size=%s, next_size=%s, error=%s",
+            len(articles),
+            split_size,
+            exc,
+        )
+
+        result = {}
+        for sub_batch in _chunk_articles(articles, split_size):
+            result.update(_translate_articles_with_retry(sub_batch, config, ai_config, call_llm))
+        return result
+
+
 async def prepare_articles_for_scoring(db: AsyncSession, articles: list[dict]) -> list[dict]:
     """根据翻译配置准备打分输入，并将译文结果持久化。"""
     if not articles:
@@ -199,10 +258,21 @@ async def prepare_articles_for_scoring(db: AsyncSession, articles: list[dict]) -
 
     from app.services.ai_scorer import _call_llm, _get_ai_config
 
-    ai_config = await _get_ai_config(db, role="scorer")
-    messages = _build_translation_prompt(articles_for_translation, config)
-    raw_response = _call_llm(messages, ai_config)
-    translated_map = _parse_translation_response(raw_response)
+    base_ai_config = await _get_ai_config(db, role="scorer")
+    ai_config = {
+        **base_ai_config,
+        "max_tokens": max(TRANSLATION_MAX_TOKENS, int(base_ai_config.get("max_tokens", 2000) or 2000)),
+    }
+    translated_map = {}
+    for translation_batch in _chunk_articles(articles_for_translation, TRANSLATION_BATCH_SIZE):
+        translated_map.update(
+            _translate_articles_with_retry(
+                translation_batch,
+                config,
+                ai_config,
+                _call_llm,
+            )
+        )
 
     for item in prepared_articles:
         translated = translated_map.get(item["id"])
