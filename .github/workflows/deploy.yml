@@ -1,0 +1,30 @@
+name: Deploy Feedlite
+
+on:
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Set up SSH key
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          echo "${{ secrets.FEEDLITE_SSH_KEY }}" > ~/.ssh/feedlite_deploy_key
+          chmod 600 ~/.ssh/feedlite_deploy_key
+
+      - name: Add VPS host key
+        run: |
+          ssh-keyscan -p "${{ secrets.FEEDLITE_PORT }}" "${{ secrets.FEEDLITE_HOST }}" >> ~/.ssh/known_hosts
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Deploy on VPS
+        run: |
+          ssh \
+            -i ~/.ssh/feedlite_deploy_key \
+            -p "${{ secrets.FEEDLITE_PORT }}" \
+            -o IdentitiesOnly=yes \
+            "${{ secrets.FEEDLITE_USER }}@${{ secrets.FEEDLITE_HOST }}" \
+            'cd ~/Feedlite && ./deploy.sh'
