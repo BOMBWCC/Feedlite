@@ -8,7 +8,12 @@ from app.auth_deps import SECRET_KEY, ALGORITHM
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
-ACCESS_TOKEN_EXPIRE_DAYS = 30
+def _access_token_expire_days() -> int:
+    try:
+        days = int(os.getenv("ACCESS_TOKEN_EXPIRE_DAYS", "30"))
+    except ValueError:
+        return 30
+    return max(1, days)
 
 class LoginRequest(BaseModel):
     username: str
@@ -29,7 +34,7 @@ async def login(req: LoginRequest):
     if req.username == env_user and req.password == env_pass:
         access_token = create_access_token(
             data={"sub": req.username}, 
-            expires_delta=timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+            expires_delta=timedelta(days=_access_token_expire_days())
         )
         return {"access_token": access_token, "token_type": "bearer"}
     

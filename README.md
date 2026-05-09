@@ -22,47 +22,14 @@ cd Feedlite
 ```
 
 ### 2. 配置环境变量与静态默认值
-创建 `.env` 并填写基础凭据：
-
-```env
-ADMIN_USERNAME=admin
-ADMIN_PASSWORD=your-password
-DISABLE_DOCS=false
-
-SCORER_PROVIDER=openai
-SCORER_MODEL=gpt-4o-mini
-SCORER_API_BASE=https://api.openai.com/v1
-SCORER_API_KEY=your-scorer-key
-
-PROFILER_PROVIDER=openai
-PROFILER_MODEL=gpt-4o-mini
-PROFILER_API_BASE=https://api.openai.com/v1
-PROFILER_API_KEY=your-profiler-key
-
-# 可选：给 OpenClaw / 内部 AI 检索接口使用
-RAG_API_KEY=your-rag-api-key
-
-# 可选：仅 AI 请求走代理
-AI_SPECIFIC_PROXY=
-```
-
-复制模板并生成本地配置：
+复制模板并生成本地配置文件：
 
 ```bash
+cp .env.example .env
 cp config.example.yml config.yml
 ```
 
-编辑 `config.yml` 可调整默认行为，本地配置不会提交到 Git：
-- `fetch`: 抓取频率、固定 UTC 时间点、批次大小、保留窗口
-- `profile`: 每周画像任务的 UTC 调度时间
-- `translation`: 是否启用翻译、目标语言、是否翻译标题 / 简介
-- `security.jwt_secret`: 生产环境请替换为唯一随机值，例如 `openssl rand -hex 32`
-
-说明：
-- `config.example.yml` 提供可提交模板
-- `config.yml` 提供本地运行默认值
-- `app_config` / `ai_models` 提供运行时生效值
-- 应用启动时会将部分默认配置同步到数据库，便于后续持久化调整
+编辑 `.env` 填写管理员凭据、JWT 密钥、AI API、代理和 RAG Key。编辑 `config.yml` 调整抓取、调度和翻译策略。各字段说明写在对应的 `.env.example` 和 `config.example.yml` 注释里。
 
 ### 3. Docker 部署
 ```bash
