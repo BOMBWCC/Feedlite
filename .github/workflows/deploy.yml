@@ -26,5 +26,7 @@ jobs:
             -i ~/.ssh/feedlite_deploy_key \
             -p "${{ secrets.FEEDLITE_PORT }}" \
             -o IdentitiesOnly=yes \
+            -o BatchMode=yes \
+            -o ConnectTimeout=15 \
             "${{ secrets.FEEDLITE_USER }}@${{ secrets.FEEDLITE_HOST }}" \
-            'cd ~/Feedlite && ./deploy.sh'
+            'cd ~/Feedlite && test -x ./deploy.sh && ./deploy.sh'
