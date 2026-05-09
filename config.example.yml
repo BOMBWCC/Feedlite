@@ -1,0 +1,48 @@
+# Feedlite example configuration.
+# Copy this file to config.yml and adjust values for your own deployment.
+# Do not commit config.yml because it may contain local secrets or proxy URLs.
+
+# Fetch settings.
+fetch:
+  # Used when fixed_times_utc is empty.
+  interval_hours: 12
+  # UTC hours for fixed daily fetches, for example: [0, 12, 18].
+  fixed_times_utc: []
+  # Keep this moderate to avoid oversized AI prompts and truncated JSON responses.
+  batch_size: 50
+  # Articles older than this window can be discarded.
+  retention_hours: 48
+
+# User profile generation schedule in UTC.
+profile:
+  day_of_week: mon
+  hour_utc: 0
+  minute_utc: 0
+
+# Network proxy for RSS fetching and AI requests.
+# Prefer environment variable AI_SPECIFIC_PROXY for AI-only proxy routing.
+# Avoid committing proxy URLs that contain usernames or passwords.
+proxy:
+  enable: false
+  http_proxy: ""
+  https_proxy: ""
+
+# Security settings.
+security:
+  # Generate a unique production secret, for example:
+  #   openssl rand -hex 32
+  # Keep the real value only in config.yml or deployment secrets.
+  jwt_secret: "replace-with-a-unique-random-secret"
+  access_token_expire_days: 7
+
+# Default AI model metadata. API keys belong in .env or the database, not here.
+ai:
+  default_provider: "openai"
+  default_model: "gpt-4o-mini"
+
+# Multilingual translation defaults synced into app_config at startup.
+translation:
+  enabled: true
+  target_language: "zh-CN"
+  translate_title: true
+  translate_description: true

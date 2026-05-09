@@ -46,13 +46,21 @@ RAG_API_KEY=your-rag-api-key
 AI_SPECIFIC_PROXY=
 ```
 
-编辑 `config.yml` 可调整默认行为：
+复制模板并生成本地配置：
+
+```bash
+cp config.example.yml config.yml
+```
+
+编辑 `config.yml` 可调整默认行为，本地配置不会提交到 Git：
 - `fetch`: 抓取频率、固定 UTC 时间点、批次大小、保留窗口
 - `profile`: 每周画像任务的 UTC 调度时间
 - `translation`: 是否启用翻译、目标语言、是否翻译标题 / 简介
+- `security.jwt_secret`: 生产环境请替换为唯一随机值，例如 `openssl rand -hex 32`
 
 说明：
-- `config.yml` 提供默认值
+- `config.example.yml` 提供可提交模板
+- `config.yml` 提供本地运行默认值
 - `app_config` / `ai_models` 提供运行时生效值
 - 应用启动时会将部分默认配置同步到数据库，便于后续持久化调整
 
