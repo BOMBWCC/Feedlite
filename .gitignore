@@ -48,7 +48,6 @@ logs/
 *.bak
 
 # Testing & Development
-tests/
 scripts/
 .pytest_cache/
 .coverage
