@@ -12,7 +12,7 @@ jobs:
         run: |
           mkdir -p ~/.ssh
           chmod 700 ~/.ssh
-          echo "${{ secrets.FEEDLITE_SSH_KEY }}" > ~/.ssh/feedlite_deploy_key
+          printf '%s\n' "${{ secrets.FEEDLITE_SSH_KEY }}" > ~/.ssh/feedlite_deploy_key
           chmod 600 ~/.ssh/feedlite_deploy_key
 
       - name: Add VPS host key
