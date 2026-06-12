@@ -3,7 +3,7 @@
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>FeedLite - Minimalist AI Reader</title>
     <meta name="description" content="FeedLite - AI-driven lightweight personal RSS reader">
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
@@ -17,14 +17,16 @@
     <div id="login-overlay" class="login-overlay">
         <div class="login-box">
             <div class="login-header">
-                <h2>Feedlite 🔐</h2>
+                <h2>Feedlite</h2>
                 <p>Please login to access your feed</p>
             </div>
             <form id="login-form">
+                <label for="login-user" class="sr-only">Username</label>
                 <input type="text" id="login-user" placeholder="Username (admin)" required autocomplete="username">
+                <label for="login-pass" class="sr-only">Password</label>
                 <input type="password" id="login-pass" placeholder="Password" required autocomplete="current-password">
                 <button type="submit" class="btn-primary">Enter</button>
-                <div id="login-error" class="error-msg"></div>
+                <div id="login-error" class="error-msg" aria-live="polite"></div>
             </form>
         </div>
     </div>
@@ -32,16 +34,17 @@
     <!-- Main Header -->
     <header class="main-header">
         <div class="header-content">
-            <h1 class="logo" id="logo-refresh" title="Click to refresh">FeedLite</h1>
+            <h1 class="logo" id="logo-refresh" title="Click to refresh" tabindex="0">FeedLite</h1>
             <div class="header-right">
                 <form class="search-expandable" id="header-search" autocomplete="off" action="javascript:void(0);">
+                    <label for="search-input" class="sr-only">Search articles</label>
                     <input type="text" id="search-input" name="feedlite_search_field" placeholder="Search articles..." class="search-input" autocomplete="new-password" spellcheck="false" autocorrect="off">
                 </form>
                 <div class="actions" id="header-actions">
-                    <button id="search-toggle" title="Search"><i data-lucide="search"></i></button>
-                    <button id="nav-subs" title="Subscription Management"><i data-lucide="globe"></i></button>
-                    <button id="nav-profile" title="AI Profile Settings"><i data-lucide="bot"></i></button>
-                    <button id="theme-toggle" title="Toggle Theme"><i data-lucide="moon"></i></button>
+                    <button id="search-toggle" title="Search" aria-label="Search articles" aria-expanded="false"><i data-lucide="search"></i></button>
+                    <button id="nav-subs" title="Subscription Management" aria-label="Subscription management"><i data-lucide="globe"></i></button>
+                    <button id="nav-profile" title="AI Profile Settings" aria-label="AI profile settings"><i data-lucide="bot"></i></button>
+                    <button id="theme-toggle" title="Toggle Theme" aria-label="Toggle theme"><i data-lucide="moon"></i></button>
                 </div>
             </div>
         </div>
@@ -72,10 +75,10 @@
         <div class="modal-content wide-modal">
             <div class="modal-header">
                 <div class="modal-tabs">
-                    <button class="tab-btn active" data-tab="tab-add" title="Add New"><i data-lucide="bookmark-plus"></i></button>
-                    <button class="tab-btn" data-tab="tab-list" title="My Subscriptions"><i data-lucide="clipboard-list"></i></button>
+                    <button class="tab-btn active" data-tab="tab-add" title="Add New" aria-label="Add new subscription"><i data-lucide="bookmark-plus"></i></button>
+                    <button class="tab-btn" data-tab="tab-list" title="My Subscriptions" aria-label="My subscriptions"><i data-lucide="clipboard-list"></i></button>
                 </div>
-                <span class="close-modal">&times;</span>
+                <button class="close-modal" type="button" aria-label="Close modal">&times;</button>
             </div>
 
             <!-- Tab 1: Add New Source -->
@@ -83,11 +86,12 @@
                 <div class="subscription-list">
                     <div class="sub-item-card add-card">
                         <div class="sub-item-info">
-                            <input type="text" placeholder="RSS URL (https://...)" id="new-sub-url"
+                            <label for="new-sub-url" class="sr-only">RSS URL</label>
+                            <input type="url" placeholder="RSS URL (https://...)" id="new-sub-url"
                                 class="minimal-input" autocomplete="off">
                         </div>
                         <div class="sub-item-actions">
-                            <button id="preview-new-btn" class="btn-primary" title="Preview content"><i
+                            <button id="preview-new-btn" class="btn-primary" title="Preview content" aria-label="Preview content"><i
                                     data-lucide="eye"></i></button>
                         </div>
                     </div>
@@ -100,10 +104,10 @@
                             </div>
                             <div style="display:flex; align-items:center; gap:8px;">
                                 <div class="custom-select-wrapper" id="custom-category-dropdown">
-                                    <div class="custom-select-trigger">
+                                    <button class="custom-select-trigger" type="button" aria-label="Select category">
                                         <span class="custom-select-text">Select Category</span>
                                         <i class="custom-select-icon" data-lucide="chevron-down"></i>
-                                    </div>
+                                    </button>
                                     <ul class="custom-select-options">
                                         <li data-value="1">News</li>
                                         <li data-value="2">Tech</li>
@@ -113,7 +117,7 @@
                                     </ul>
                                     <input type="hidden" id="new-sub-category" value="" required>
                                 </div>
-                                <button id="confirm-add-btn" class="btn-primary round-btn" title="Confirm Add"><i
+                                <button id="confirm-add-btn" class="btn-primary round-btn" title="Confirm Add" aria-label="Confirm add subscription"><i
                                         data-lucide="plus"></i></button>
                             </div>
                         </div>
@@ -136,7 +140,7 @@
         <div class="modal-content wide-modal">
             <div class="modal-header">
                 <h3>AI User Profile</h3>
-                <span class="close-modal">&times;</span>
+                <button class="close-modal" type="button" aria-label="Close modal">&times;</button>
             </div>
             <div class="modal-scroll-area">
                 <!-- Persona Card (Read-only) -->
@@ -161,7 +165,7 @@
         </div>
     </div>
 
-    <button id="back-to-top" title="Back to top"><i data-lucide="arrow-up"></i></button>
+    <button id="back-to-top" title="Back to top" aria-label="Back to top"><i data-lucide="arrow-up"></i></button>
     <script src="/app.js" charset="UTF-8"></script>
 </body>
 

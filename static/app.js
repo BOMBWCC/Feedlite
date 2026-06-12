@@ -3,6 +3,13 @@ console.log("🚀 FeedLite JS Starting...");
 document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ DOM Content Loaded");
 
+    const currentUrl = new URL(window.location.href);
+    if (currentUrl.searchParams.has('logout')) {
+        localStorage.removeItem('feedlite_token');
+        currentUrl.searchParams.delete('logout');
+        window.history.replaceState({}, '', currentUrl);
+    }
+
     // Unified handling for backend exceptions that might return plain text 500 instead of JSON.
     const readApiResponse = async (res) => {
         const contentType = res.headers.get('content-type') || '';
@@ -35,6 +42,12 @@ document.addEventListener('DOMContentLoaded', () => {
         return res;
     };
 
+    const hasAuthToken = () => Boolean(localStorage.getItem('feedlite_token'));
+    const loginOverlay = document.getElementById('login-overlay');
+    if (!hasAuthToken() && loginOverlay) {
+        loginOverlay.classList.add('active');
+    }
+
     // --- Login Logic ---
     const loginForm = document.getElementById('login-form');
     if (loginForm) {
@@ -59,7 +72,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (res.ok) {
                     const data = await res.json();
                     localStorage.setItem('feedlite_token', data.access_token);
-                    document.getElementById('login-overlay').classList.remove('active');
+                    loginOverlay?.classList.remove('active');
                     window.location.reload();
                 } else {
                     err.textContent = 'Invalid username or password';
@@ -150,6 +163,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const categorySelect = document.getElementById('new-sub-category');
         const categoryText = document.querySelector('#custom-category-dropdown .custom-select-text');
         const categoryOptions = document.querySelectorAll('#custom-category-dropdown .custom-select-options li');
+        const confirmAddBtn = document.getElementById('confirm-add-btn');
 
         if (urlInput) urlInput.value = '';
         if (previewContainer) {
@@ -158,6 +172,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (previewList) previewList.innerHTML = '';
         }
         if (categorySelect) categorySelect.value = '';
+        if (confirmAddBtn) confirmAddBtn.disabled = false;
         if (categoryText) categoryText.textContent = 'Select Category';
         if (categoryOptions) categoryOptions.forEach(opt => opt.classList.remove('selected'));
         lastPreviewData = null;
@@ -281,6 +296,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 return;
             }
 
+            confirmAddBtn.disabled = true;
             confirmAddBtn.innerHTML = '<i data-lucide="loader-circle" class="lucide-spin"></i>';
             try {
                 const feedTitle = lastPreviewData?.feed_title || '';
@@ -289,14 +305,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await readApiResponse(res);
                 if (!res.ok) throw new Error(data.detail || 'Failed to add source');
 
-                alert('✅ Source added successfully!');
+                alert('Source added successfully!');
                 urlInput.value = '';
-                confirmAddBtn.disabled = true;
+                categorySelect.value = '';
                 document.getElementById('preview-container').classList.add('hidden');
+                const categoryText = document.querySelector('#custom-category-dropdown .custom-select-text');
+                const categoryOptions = document.querySelectorAll('#custom-category-dropdown .custom-select-options li');
+                if (categoryText) categoryText.textContent = 'Select Category';
+                if (categoryOptions) categoryOptions.forEach(opt => opt.classList.remove('selected'));
                 lastPreviewData = null;
             } catch (e) {
                 alert('Failed to add: ' + e.message);
             } finally {
+                confirmAddBtn.disabled = false;
                 confirmAddBtn.innerHTML = '<i data-lucide="plus"></i>';
                 lucide.createIcons();
             }
@@ -322,8 +343,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                     </div>
                     <div class="sub-item-actions">
-                        <button class="btn-action btn-preview-list-sub" data-url="${f.url}" title="Preview latest content"><i data-lucide="eye"></i></button>
-                        <button class="btn-action btn-delete-sub" title="Delete subscription"><i data-lucide="trash-2"></i></button>
+                        <button class="btn-action btn-preview-list-sub" data-url="${f.url}" title="Preview latest content" aria-label="Preview latest content"><i data-lucide="eye"></i></button>
+                        <button class="btn-action btn-delete-sub" title="Delete subscription" aria-label="Delete subscription"><i data-lucide="trash-2"></i></button>
                     </div>
                 </div>
                 <div id="list-preview-${f.id}" class="preview-area hidden" style="margin-top: -8px; margin-bottom: 12px; background: rgba(0,0,0,0.2); border-radius: 0 0 12px 12px;"></div>
@@ -577,17 +598,17 @@ document.addEventListener('DOMContentLoaded', () => {
                         <span class="pub-time">${formatTime(pubDate)}</span>
                         <span class="decision-chip ${decisionMeta.className}" title="${decisionMeta.title}"><i data-lucide="${decisionMeta.icon}"></i></span>
                         <div class="action-menu-container">
-                            <button class="btn-more-options" title="More options"><i data-lucide="more-horizontal"></i></button>
+                            <button class="btn-more-options" title="More options" aria-label="More options"><i data-lucide="more-horizontal"></i></button>
                             <div class="action-dropdown">
-                                <a href="${article.link}" target="_blank" rel="noopener" class="dropdown-item" title="View original"><i data-lucide="external-link"></i></a>
-                                <button class="dropdown-item btn-not-interest ${article.feedback === -1 ? 'active' : ''}" data-type="-1" title="Not interested"><i data-lucide="thumbs-down"></i></button>
+                                <a href="${article.link}" target="_blank" rel="noopener" class="dropdown-item" title="View original" aria-label="View original"><i data-lucide="external-link"></i></a>
+                                <button class="dropdown-item btn-not-interest ${article.feedback === -1 ? 'active' : ''}" data-type="-1" title="Not interested" aria-label="Not interested"><i data-lucide="thumbs-down"></i></button>
                             </div>
                         </div>
                     </div>
                 </div>
                 <div class="excerpt-with-like">
                     <p class="article-excerpt" title="${escapedDesc}">${excerptHtml}</p>
-                    <button class="btn-action btn-interest inline-like ${article.feedback === 1 ? 'active' : ''}" data-type="1" title="Interested"><i data-lucide="thumbs-up"></i></button>
+                    <button class="btn-action btn-interest inline-like ${article.feedback === 1 ? 'active' : ''}" data-type="1" title="Interested" aria-label="Interested"><i data-lucide="thumbs-up"></i></button>
                 </div>
             </article>
         `;
@@ -677,7 +698,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     };
 
-    loadArticles(true);
+    if (hasAuthToken()) {
+        loadArticles(true);
+    }
 
     document.addEventListener('click', async (e) => {
         const dropdownItem = e.target.closest('.dropdown-item');
@@ -732,12 +755,19 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    document.getElementById('logo-refresh').onclick = async () => {
+    const refreshFromLogo = async () => {
         const searchInput = document.getElementById('search-input');
         if (searchInput) searchInput.value = '';
         toggleSearch(true);
         await refreshFeeds();
     };
+    document.getElementById('logo-refresh').onclick = refreshFromLogo;
+    document.getElementById('logo-refresh').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            refreshFromLogo();
+        }
+    });
 
     const searchToggle = document.getElementById('search-toggle');
     const searchBox = document.getElementById('header-search');
@@ -752,6 +782,7 @@ document.addEventListener('DOMContentLoaded', () => {
             searchOpen = false;
             if (forceClose) searchInput.blur();
             searchToggle.innerHTML = '<i data-lucide="search"></i>';
+            searchToggle.setAttribute('aria-expanded', 'false');
         } else {
             searchBox.classList.add('expanded');
             const hd = document.querySelector('.header-content');
@@ -759,6 +790,7 @@ document.addEventListener('DOMContentLoaded', () => {
             searchOpen = true;
             setTimeout(() => searchInput.focus(), 350);
             searchToggle.innerHTML = '<i data-lucide="x"></i>';
+            searchToggle.setAttribute('aria-expanded', 'true');
         }
         lucide.createIcons();
     };
@@ -794,7 +826,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     document.addEventListener('click', (e) => {
-        if (searchOpen && !searchBox.contains(e.target) && e.target !== searchToggle) {
+        if (searchOpen && !searchBox.contains(e.target) && !searchToggle.contains(e.target)) {
             toggleSearch(true);
         }
     });
