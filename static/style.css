@@ -1319,9 +1319,17 @@ body.light-mode .main-header {
     border: 1px solid var(--border);
 }
 
-.login-header h2 {
+.login-title {
     margin-bottom: 5px;
     color: var(--text-primary);
+    font-size: 2rem;
+    font-weight: 900;
+    line-height: 1.05;
+    letter-spacing: 0;
+}
+
+.login-title span {
+    color: var(--accent);
 }
 
 .login-header p {

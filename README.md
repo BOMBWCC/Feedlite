@@ -35,7 +35,7 @@ cp config.example.yml config.yml
 ```bash
 docker-compose up -d --build
 ```
-访问 http://你的IP:8000 即可开始使用。
+访问 ```http://你的IP:8000``` 即可开始使用。
 
 ### 4. 本地运行
 ```bash
