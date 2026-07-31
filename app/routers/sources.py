@@ -4,24 +4,15 @@ from sqlalchemy import select, update
 
 from app.database import get_db
 from app.models import Feed
-
-import re
-import html as html_module
-import feedparser
-import requests
-import calendar
-from datetime import datetime, timezone
+from app.services.rss_fetcher import (
+    MAX_RSS_RESPONSE_BYTES,
+    RSS_CONNECT_TIMEOUT,
+    USER_AGENT,
+    parse_feed_content,
+)
+from app.services.safe_http import async_fetch_public_bytes
 
 router = APIRouter(prefix="/api/sources", tags=["sources"])
-
-
-def _clean_html(raw: str) -> str:
-    """清洗 HTML 标签并解码实体字符"""
-    if not raw:
-        return ""
-    text = re.sub(r'<.*?>', '', raw)
-    text = html_module.unescape(text)
-    return " ".join(text.split())
 
 
 @router.get("/")
@@ -90,35 +81,35 @@ async def delete_source(source_id: int, db: AsyncSession = Depends(get_db)):
 async def preview_source(url: str = Query(...)):
     """预览 RSS 源最新 3 条内容（实时抓取）"""
     try:
-        headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"}
-        resp = requests.get(url, headers=headers, timeout=10)
-        resp.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        raise HTTPException(status_code=400, detail=f"抓取失败: {e}")
+        content = await async_fetch_public_bytes(
+            url,
+            max_bytes=MAX_RSS_RESPONSE_BYTES,
+            timeout=(RSS_CONNECT_TIMEOUT, 10),
+            total_timeout=20,
+            headers={"User-Agent": USER_AGENT},
+        )
+        parsed = parse_feed_content(
+            content,
+            max_desc_len=200,
+            max_content_len=200,
+            max_entries=3,
+            enforce_retention=False,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail="抓取失败或目标不允许") from exc
 
-    feed = feedparser.parse(resp.content)
-
-    if feed.bozo and not feed.entries:
-        raise HTTPException(status_code=400, detail=f"RSS 解析失败: {feed.bozo_exception}")
-
-    articles = []
-    for entry in feed.entries[:3]:
-        title = getattr(entry, "title", "无标题")
-        link = getattr(entry, "link", "")
-        raw_desc = getattr(entry, "summary", getattr(entry, "description", ""))
-        desc = _clean_html(raw_desc)
-        if len(desc) > 200:
-            desc = desc[:200] + "..."
-
-        pub = ""
-        if hasattr(entry, "published_parsed") and entry.published_parsed:
-            try:
-                ts = calendar.timegm(entry.published_parsed)
-                pub = datetime.fromtimestamp(ts, timezone.utc).isoformat()
-            except Exception:
-                pub = ""
-
-        articles.append({"title": title, "link": link, "description": desc, "published": pub})
-
-    feed_title = getattr(feed.feed, "title", "")
-    return {"status": "ok", "url": url, "feed_title": feed_title, "articles": articles}
+    articles = [
+        {
+            "title": article["title"],
+            "link": article["link"],
+            "description": article["description"],
+            "published": article["published"],
+        }
+        for article in parsed["articles"]
+    ]
+    return {
+        "status": "ok",
+        "url": url,
+        "feed_title": parsed["feed_title"],
+        "articles": articles,
+    }

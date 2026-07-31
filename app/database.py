@@ -207,6 +207,94 @@ async def _sync_app_config_defaults(db):
     print(f"✅ Synced {len(defaults)} runtime defaults into app_config")
 
 
+async def _article_unique_column_sets(db) -> list[list[str]]:
+    indexes = await db.execute("PRAGMA index_list('articles')")
+    unique_indexes = [row[1] for row in await indexes.fetchall() if row[2]]
+    result = []
+    for index_name in unique_indexes:
+        escaped_name = index_name.replace('"', '""')
+        columns = await db.execute(f'PRAGMA index_info("{escaped_name}")')
+        result.append([row[2] for row in await columns.fetchall()])
+    return result
+
+
+async def _migrate_article_identity(db):
+    """Scope article-link uniqueness to each feed for legacy databases."""
+    unique_columns = await _article_unique_column_sets(db)
+    if ["feed_id", "link"] in unique_columns and ["link"] not in unique_columns:
+        return
+
+    if ["link"] not in unique_columns:
+        await db.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS uq_articles_feed_link ON articles (feed_id, link)"
+        )
+        await db.commit()
+        return
+
+    await db.commit()
+    await db.execute("PRAGMA foreign_keys=OFF")
+    try:
+        await db.execute("BEGIN IMMEDIATE")
+        await db.execute("DROP TABLE IF EXISTS articles_new")
+        await db.execute(
+            """
+            CREATE TABLE articles_new (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                feed_id INTEGER NOT NULL,
+                title TEXT NOT NULL,
+                link TEXT NOT NULL,
+                description TEXT,
+                content TEXT,
+                search_text TEXT DEFAULT '',
+                translated_title TEXT,
+                translated_description TEXT,
+                translation_language TEXT,
+                translation_status TEXT DEFAULT 'pending',
+                translation_updated_at TEXT,
+                published TEXT NOT NULL,
+                ai_score INTEGER DEFAULT 0,
+                decision_type TEXT DEFAULT 'recommend',
+                recommend_level TEXT DEFAULT 'low',
+                feedback INTEGER DEFAULT 0,
+                feedback_updated_at TEXT,
+                status TEXT DEFAULT 'active',
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
+                FOREIGN KEY (feed_id) REFERENCES feeds (id),
+                UNIQUE (feed_id, link)
+            )
+            """
+        )
+        await db.execute(
+            """
+            INSERT INTO articles_new (
+                id, feed_id, title, link, description, content, search_text,
+                translated_title, translated_description, translation_language,
+                translation_status, translation_updated_at, published, ai_score,
+                decision_type, recommend_level, feedback, feedback_updated_at,
+                status, created_at
+            )
+            SELECT
+                id, feed_id, title, link, description, content, search_text,
+                translated_title, translated_description, translation_language,
+                translation_status, translation_updated_at, published, ai_score,
+                decision_type, recommend_level, feedback, feedback_updated_at,
+                status, created_at
+            FROM articles
+            """
+        )
+        await db.execute("DROP TABLE articles")
+        await db.execute("ALTER TABLE articles_new RENAME TO articles")
+        await db.execute(
+            "CREATE INDEX IF NOT EXISTS idx_articles_status_published_id ON articles (status, published DESC, id DESC)"
+        )
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise
+    finally:
+        await db.execute("PRAGMA foreign_keys=ON")
+
+
 async def _rebuild_search_index(db):
     """兼容历史数据库：补齐 search_text，并重建 FTS5 索引与触发器。"""
     cursor = await db.execute("PRAGMA table_info(articles)")
@@ -350,6 +438,160 @@ async def _rebuild_article_chunk_index(db):
     await db.commit()
     print("✅ Rebuilt article_chunks FTS index and triggers")
 
+
+async def _sqlite_object_exists(db, object_type: str, name: str) -> bool:
+    cursor = await db.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = ? AND name = ?",
+        (object_type, name),
+    )
+    return await cursor.fetchone() is not None
+
+
+async def _backfill_empty_article_search_text(db, batch_size: int) -> None:
+    last_id = 0
+    while True:
+        cursor = await db.execute(
+            """
+            SELECT id, title, description
+            FROM articles
+            WHERE id > ? AND COALESCE(search_text, '') = ''
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (last_id, batch_size),
+        )
+        rows = await cursor.fetchall()
+        if not rows:
+            break
+
+        payload = [
+            (
+                build_search_text(
+                    title=row[1] or "",
+                    description=row[2] or "",
+                ),
+                row[0],
+            )
+            for row in rows
+        ]
+        await db.executemany(
+            "UPDATE articles SET search_text = ? WHERE id = ?",
+            payload,
+        )
+        await db.commit()
+        last_id = rows[-1][0]
+
+
+async def _ensure_article_search_index(db, batch_size: int) -> None:
+    columns = await db.execute("PRAGMA table_info(articles)")
+    article_columns = {row[1] for row in await columns.fetchall()}
+    if "search_text" not in article_columns:
+        await db.execute("ALTER TABLE articles ADD COLUMN search_text TEXT DEFAULT ''")
+        await db.commit()
+
+    fts_exists = await _sqlite_object_exists(db, "table", "articles_fts")
+    trigger_names = ("articles_ai", "articles_au", "articles_ad")
+    trigger_exists = {
+        name: await _sqlite_object_exists(db, "trigger", name)
+        for name in trigger_names
+    }
+    needs_rebuild = not fts_exists or not all(trigger_exists.values())
+
+    if not fts_exists:
+        await db.execute(
+            """
+            CREATE VIRTUAL TABLE articles_fts USING fts5(
+                search_text,
+                content='articles',
+                content_rowid='id',
+                tokenize='unicode61'
+            )
+            """
+        )
+
+    trigger_sql = {
+        "articles_ai": """
+            CREATE TRIGGER articles_ai AFTER INSERT ON articles BEGIN
+              INSERT INTO articles_fts(rowid, search_text) VALUES (new.id, new.search_text);
+            END
+        """,
+        "articles_au": """
+            CREATE TRIGGER articles_au AFTER UPDATE ON articles BEGIN
+              INSERT INTO articles_fts(articles_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+              INSERT INTO articles_fts(rowid, search_text) VALUES (new.id, new.search_text);
+            END
+        """,
+        "articles_ad": """
+            CREATE TRIGGER articles_ad AFTER DELETE ON articles BEGIN
+              INSERT INTO articles_fts(articles_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+            END
+        """,
+    }
+    for name, sql in trigger_sql.items():
+        if not trigger_exists[name]:
+            await db.execute(sql)
+    await db.commit()
+
+    await _backfill_empty_article_search_text(db, batch_size)
+    if needs_rebuild:
+        await db.execute("INSERT INTO articles_fts(articles_fts) VALUES ('rebuild')")
+        await db.commit()
+
+
+async def _ensure_article_chunk_search_index(db) -> None:
+    fts_exists = await _sqlite_object_exists(db, "table", "article_chunks_fts")
+    trigger_names = ("article_chunks_ai", "article_chunks_au", "article_chunks_ad")
+    trigger_exists = {
+        name: await _sqlite_object_exists(db, "trigger", name)
+        for name in trigger_names
+    }
+    needs_rebuild = not fts_exists or not all(trigger_exists.values())
+
+    if not fts_exists:
+        await db.execute(
+            """
+            CREATE VIRTUAL TABLE article_chunks_fts USING fts5(
+                search_text,
+                content='article_chunks',
+                content_rowid='id',
+                tokenize='unicode61'
+            )
+            """
+        )
+
+    trigger_sql = {
+        "article_chunks_ai": """
+            CREATE TRIGGER article_chunks_ai AFTER INSERT ON article_chunks BEGIN
+              INSERT INTO article_chunks_fts(rowid, search_text) VALUES (new.id, new.search_text);
+            END
+        """,
+        "article_chunks_au": """
+            CREATE TRIGGER article_chunks_au AFTER UPDATE ON article_chunks BEGIN
+              INSERT INTO article_chunks_fts(article_chunks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+              INSERT INTO article_chunks_fts(rowid, search_text) VALUES (new.id, new.search_text);
+            END
+        """,
+        "article_chunks_ad": """
+            CREATE TRIGGER article_chunks_ad AFTER DELETE ON article_chunks BEGIN
+              INSERT INTO article_chunks_fts(article_chunks_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+            END
+        """,
+    }
+    for name, sql in trigger_sql.items():
+        if not trigger_exists[name]:
+            await db.execute(sql)
+    if needs_rebuild:
+        await db.execute("INSERT INTO article_chunks_fts(article_chunks_fts) VALUES ('rebuild')")
+    await db.commit()
+
+
+async def _ensure_search_indexes(db, batch_size: int = 500) -> None:
+    """Create or repair FTS structures without rebuilding healthy indexes."""
+    if batch_size < 1:
+        raise ValueError("batch_size must be positive")
+    await _ensure_article_search_index(db, batch_size)
+    await _ensure_article_chunk_search_index(db)
+
 # 初始化数据库结构 (冷启动调用)
 async def init_db():
     if not os.path.exists(SCHEMA_PATH):
@@ -374,10 +616,10 @@ async def init_db():
         await _migrate_user_profiles(db)
         await _cleanup_users_table(db)
         await _migrate_article_translation_columns(db)
+        await _migrate_article_identity(db)
         await _sync_app_config_defaults(db)
-        await _rebuild_search_index(db)
         await _ensure_article_chunks_schema(db)
-        await _rebuild_article_chunk_index(db)
+        await _ensure_search_indexes(db)
 
         # 2. 启动时将 .env 中的 AI 配置按角色写入数据库，确保重启后数据库与当前环境一致。
         models_to_upsert = []

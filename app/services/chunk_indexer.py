@@ -17,6 +17,8 @@ from app.services.search_index import build_search_text
 DEFAULT_CHUNK_SIZE = 800
 DEFAULT_CHUNK_OVERLAP = 120
 DEFAULT_MIN_CHUNK_SIZE = 120
+MAX_CHUNKS_PER_ARTICLE = 200
+MAX_CHUNK_SOURCE_CHARS = 100000
 _SOFT_BREAK_CHARS = " \n\t。！？；.!?;,，、:"
 _TOKEN_ESTIMATE_RE = re.compile(r"[\u4e00-\u9fff]|[A-Za-z0-9_]+")
 
@@ -46,6 +48,7 @@ def split_text_into_chunks(
     chunk_size: int = DEFAULT_CHUNK_SIZE,
     chunk_overlap: int = DEFAULT_CHUNK_OVERLAP,
     min_chunk_size: int = DEFAULT_MIN_CHUNK_SIZE,
+    max_chunks: int = MAX_CHUNKS_PER_ARTICLE,
 ) -> list[str]:
     """使用固定窗口 + overlap 切块。"""
     normalized = _normalize_chunk_content(text)
@@ -57,12 +60,14 @@ def split_text_into_chunks(
         raise ValueError("chunk_overlap must be non-negative")
     if chunk_overlap >= chunk_size:
         raise ValueError("chunk_overlap must be smaller than chunk_size")
+    if max_chunks <= 0:
+        raise ValueError("max_chunks must be positive")
 
     chunks: list[str] = []
     start = 0
     length = len(normalized)
 
-    while start < length:
+    while start < length and len(chunks) < max_chunks:
         end = min(length, start + chunk_size)
         if end < length:
             end = _find_soft_break(normalized, start, end)
@@ -97,9 +102,9 @@ def build_article_chunk_payloads(
     min_chunk_size: int = DEFAULT_MIN_CHUNK_SIZE,
 ) -> list[dict]:
     """根据文章内容构造待写入的 chunk payload。"""
-    normalized_title = _normalize_chunk_content(title)
-    normalized_description = _normalize_chunk_content(description)
-    normalized_content = _normalize_chunk_content(content)
+    normalized_title = _normalize_chunk_content((title or "")[:MAX_CHUNK_SOURCE_CHARS])
+    normalized_description = _normalize_chunk_content((description or "")[:MAX_CHUNK_SOURCE_CHARS])
+    normalized_content = _normalize_chunk_content((content or "")[:MAX_CHUNK_SOURCE_CHARS])
 
     body_text = normalized_content or normalized_description or normalized_title
     if not body_text:
@@ -110,6 +115,7 @@ def build_article_chunk_payloads(
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap,
         min_chunk_size=min_chunk_size,
+        max_chunks=MAX_CHUNKS_PER_ARTICLE,
     )
     now = datetime.now(timezone.utc).isoformat()
     title_for_search = "\n".join(filter(None, [normalized_title, _normalize_chunk_content(translated_title)]))

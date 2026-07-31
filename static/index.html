@@ -9,7 +9,12 @@
     <link rel="icon" href="/favicon.ico" type="image/x-icon">
     <link rel="shortcut icon" href="/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="/style.css?v=login-title-accent">
+    <meta name="theme-color" content="#000000" media="(prefers-color-scheme: dark)">
+    <meta name="theme-color" content="#F5F5F5" media="(prefers-color-scheme: light)">
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,400;14..32,500;14..32,600;14..32,700;14..32,800;14..32,900&display=swap" rel="stylesheet">
 </head>
 
 <body>
@@ -108,7 +113,7 @@
                                         <span class="custom-select-text">Select Category</span>
                                         <i class="custom-select-icon" data-lucide="chevron-down"></i>
                                     </button>
-                                    <ul class="custom-select-options">
+                                    <ul class="custom-select-options" popover="manual" id="custom-category-options">
                                         <li data-value="1">News</li>
                                         <li data-value="2">Tech</li>
                                         <li data-value="3">Humanities</li>
@@ -166,6 +171,8 @@
     </div>
 
     <button id="back-to-top" title="Back to top" aria-label="Back to top"><i data-lucide="arrow-up"></i></button>
+    <div id="toast-container" aria-live="polite" aria-relevant="additions" style="position:fixed;bottom:24px;right:24px;z-index:9999;display:flex;flex-direction:column;gap:8px;pointer-events:none;"></div>
+    <script src="/security.js" charset="UTF-8"></script>
     <script src="/app.js" charset="UTF-8"></script>
 </body>
 

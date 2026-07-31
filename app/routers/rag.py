@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,8 @@ from app.models import Article, ArticleChunk, Feed
 from app.services.search_index import build_search_query
 
 DEFAULT_RAG_DAYS = 30
+MAX_RAG_QUERY_LENGTH = 512
+MAX_CONTEXT_CHUNK_IDS = 50
 
 router = APIRouter(
     prefix="/api/rag",
@@ -40,7 +42,7 @@ def _serialize_chunk_row(row, *, is_requested: bool) -> dict:
 
 @router.get("/search")
 async def search_rag_chunks(
-    q: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, max_length=MAX_RAG_QUERY_LENGTH),
     limit: int = Query(default=8, ge=1, le=20),
     category: int | None = Query(default=None),
     days: int = Query(default=DEFAULT_RAG_DAYS, ge=0, le=3650),
@@ -48,6 +50,9 @@ async def search_rag_chunks(
     db: AsyncSession = Depends(get_db),
 ):
     """给 OpenClaw 等调用方使用的 RAG 检索接口。"""
+    if len(q) > MAX_RAG_QUERY_LENGTH:
+        raise HTTPException(status_code=422, detail="RAG query is too long")
+
     search_query = build_search_query(q)
     if not search_query:
         return {
@@ -147,6 +152,10 @@ async def get_rag_context(
     db: AsyncSession = Depends(get_db),
 ):
     """根据命中的 chunk_id 拉取更适合拼 prompt 的上下文。"""
+    if len(chunk_ids) > MAX_CONTEXT_CHUNK_IDS:
+        raise HTTPException(status_code=422, detail="Too many chunk IDs")
+
+    chunk_ids = list(dict.fromkeys(chunk_ids))
     if not chunk_ids:
         return {
             "requested_chunk_ids": [],

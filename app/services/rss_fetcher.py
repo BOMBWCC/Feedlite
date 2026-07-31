@@ -3,14 +3,14 @@ RSS Fetcher Service
 核心职责：抓取 RSS → 清洗 HTML → 时间过滤 → URL 查重入库 → 源熔断
 """
 
-import re
+import asyncio
 import html as html_module
 import calendar
 import logging
 import os
+from urllib.parse import urlsplit
 
 import feedparser
-import requests
 import yaml
 from datetime import datetime, timezone, timedelta
 
@@ -20,7 +20,8 @@ from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.models import Feed, Article
 from app.services.chunk_indexer import rebuild_article_chunks_for_article
-from app.services.search_index import build_search_text
+from app.services.search_index import build_search_text, strip_markup
+from app.services.safe_http import fetch_public_bytes
 
 logger = logging.getLogger("feedlite.rss_fetcher")
 
@@ -29,6 +30,16 @@ DEFAULT_RETENTION_HOURS = 24
 MAX_ERROR_COUNT = 5       # 连续失败达此次数后进入休眠
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"
 FETCH_TIMEOUT = 15        # 秒
+RSS_CONNECT_TIMEOUT = 3
+RSS_TOTAL_TIMEOUT = 25
+MAX_RSS_RESPONSE_BYTES = 5 * 1024 * 1024
+MAX_FEED_REDIRECTS = 3
+MAX_FEED_ENTRIES = 200
+MAX_FEED_TITLE_CHARS = 200
+MAX_ARTICLE_TITLE_CHARS = 500
+MAX_ARTICLE_LINK_CHARS = 2048
+MAX_DESCRIPTION_CHARS = 1000
+MAX_CONTENT_CHARS = 100000
 
 
 # ─── 工具函数 ────────────────────────────────────────
@@ -69,9 +80,25 @@ def clean_html(raw: str) -> str:
     """清洗 HTML 标签并解码实体字符"""
     if not raw:
         return ""
-    text = re.sub(r'<.*?>', '', raw)
+    text = strip_markup(raw)
     text = html_module.unescape(text)
     return " ".join(text.split())
+
+
+def _clean_bounded(raw: object, max_chars: int) -> str:
+    bounded_raw = str(raw or "")[:max_chars]
+    return clean_html(bounded_raw)[:max_chars]
+
+
+def _normalize_article_link(raw: object) -> str:
+    link = str(raw or "").strip()[:MAX_ARTICLE_LINK_CHARS]
+    try:
+        parsed = urlsplit(link)
+    except ValueError:
+        return ""
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        return ""
+    return link
 
 
 def parse_published_time(entry) -> datetime | None:
@@ -93,67 +120,90 @@ def parse_published_time(entry) -> datetime | None:
 
 # ─── 核心：抓取并清洗 ─────────────────────────────────
 
+def parse_feed_content(
+    content: bytes,
+    retention_hours: int | None = None,
+    max_desc_len: int = MAX_DESCRIPTION_CHARS,
+    max_content_len: int = MAX_CONTENT_CHARS,
+    *,
+    max_entries: int = MAX_FEED_ENTRIES,
+    enforce_retention: bool = True,
+) -> dict:
+    """Parse already-bounded feed bytes and constrain fields before storage."""
+    retention_hours = _get_retention_hours(retention_hours)
+    now_utc = datetime.now(timezone.utc)
+    cutoff = now_utc - timedelta(hours=retention_hours)
+    description_limit = max(1, min(max_desc_len, MAX_DESCRIPTION_CHARS))
+    content_limit = max(1, min(max_content_len, MAX_CONTENT_CHARS))
+    entry_limit = max(1, min(max_entries, MAX_FEED_ENTRIES))
+
+    feed = feedparser.parse(content)
+    if feed.bozo and not feed.entries:
+        raise ValueError(f"RSS 解析失败: {feed.bozo_exception}")
+
+    feed_title = _clean_bounded(
+        getattr(feed.feed, "title", ""),
+        MAX_FEED_TITLE_CHARS,
+    )
+    results = []
+    for entry in feed.entries[:entry_limit]:
+        title = _clean_bounded(
+            getattr(entry, "title", "无标题"),
+            MAX_ARTICLE_TITLE_CHARS,
+        ) or "无标题"
+        link = _normalize_article_link(getattr(entry, "link", ""))
+        if not link:
+            continue
+
+        raw_desc = getattr(entry, "summary", getattr(entry, "description", ""))
+        desc = _clean_bounded(raw_desc, description_limit)
+
+        if hasattr(entry, "content") and entry.content:
+            raw_content = entry.content[0].value
+        else:
+            raw_content = raw_desc
+        article_content = _clean_bounded(raw_content, content_limit)
+
+        pub_time = parse_published_time(entry) or now_utc
+        if enforce_retention and pub_time < cutoff:
+            continue
+
+        results.append(
+            {
+                "title": title,
+                "link": link,
+                "description": desc,
+                "content": article_content,
+                "published": pub_time.isoformat(),
+            }
+        )
+
+    return {"feed_title": feed_title, "articles": results}
+
 def fetch_and_clean(
     feed_url: str,
     retention_hours: int | None = None,
-    max_desc_len: int = 300,
-    max_content_len: int | None = None,
+    max_desc_len: int = MAX_DESCRIPTION_CHARS,
+    max_content_len: int = MAX_CONTENT_CHARS,
 ) -> dict:
     """
     抓取单个 RSS 源，返回清洗后的文章列表。
     自动过滤超过 retention_hours 的旧文章。
     """
-    retention_hours = _get_retention_hours(retention_hours)
-    now_utc = datetime.now(timezone.utc)
-    cutoff = now_utc - timedelta(hours=retention_hours)
-
     headers = {"User-Agent": USER_AGENT}
-    response = requests.get(feed_url, headers=headers, timeout=FETCH_TIMEOUT)
-    response.raise_for_status()
-
-    feed = feedparser.parse(response.content)
-    if feed.bozo and not feed.entries:
-        raise ValueError(f"RSS 解析失败: {feed.bozo_exception}")
-
-    feed_title = getattr(feed.feed, "title", "")
-
-    results = []
-    for entry in feed.entries:
-        title = getattr(entry, 'title', '无标题')
-        link = getattr(entry, 'link', '')
-        if not link:
-            continue
-
-        # 简介
-        raw_desc = getattr(entry, 'summary', getattr(entry, 'description', ''))
-        desc = clean_html(raw_desc)
-        if len(desc) > max_desc_len:
-            desc = desc[:max_desc_len] + "..."
-
-        # 正文
-        raw_content = ""
-        if hasattr(entry, 'content') and entry.content:
-            raw_content = entry.content[0].value
-        else:
-            raw_content = raw_desc
-        content = clean_html(raw_content)
-        if max_content_len and len(content) > max_content_len:
-            content = content[:max_content_len] + "..."
-
-        # 时间过滤
-        pub_time = parse_published_time(entry) or now_utc
-        if pub_time < cutoff:
-            continue
-
-        results.append({
-            "title": title,
-            "link": link,
-            "description": desc,
-            "content": content,
-            "published": pub_time.isoformat(),
-        })
-
-    return {"feed_title": feed_title, "articles": results}
+    content = fetch_public_bytes(
+        feed_url,
+        max_bytes=MAX_RSS_RESPONSE_BYTES,
+        timeout=(RSS_CONNECT_TIMEOUT, FETCH_TIMEOUT),
+        max_redirects=MAX_FEED_REDIRECTS,
+        headers=headers,
+    )
+    return parse_feed_content(
+        content,
+        retention_hours=retention_hours,
+        max_desc_len=max_desc_len,
+        max_content_len=max_content_len,
+    )
 
 
 # ─── 核心：查重入库 ──────────────────────────────────
@@ -187,7 +237,7 @@ async def deduplicate_and_store(
                 ai_score=0,
                 status="active",
             )
-            .on_conflict_do_nothing(index_elements=["link"])
+            .on_conflict_do_nothing(index_elements=["feed_id", "link"])
         )
         result = await db.execute(stmt)
         if result.rowcount > 0:
@@ -228,7 +278,14 @@ async def fetch_single_feed(db: AsyncSession, feed: Feed, retention_hours: int |
     result = {"feed_id": feed.id, "url": feed.url, "fetched": 0, "inserted": 0, "error": None}
 
     try:
-        data = fetch_and_clean(feed.url, retention_hours=retention_hours)
+        data = await asyncio.wait_for(
+            asyncio.to_thread(
+                fetch_and_clean,
+                feed.url,
+                retention_hours=retention_hours,
+            ),
+            timeout=RSS_TOTAL_TIMEOUT,
+        )
         articles = data["articles"]
         feed_title = data["feed_title"]
         result["fetched"] = len(articles)

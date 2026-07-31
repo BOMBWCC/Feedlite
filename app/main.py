@@ -11,6 +11,7 @@ load_dotenv()
 
 from app.database import engine, init_db
 from app.services.scheduler import start_scheduler, stop_scheduler
+from app.security_config import validate_security_config
 
 from fastapi import Depends
 
@@ -26,6 +27,8 @@ def _env_flag_enabled(name: str) -> bool:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理：启动时初始化数据库和调度器，关闭时释放资源"""
+    validate_security_config()
+
     # 冷启动：初始化数据库结构
     await init_db()
     print("✅ Database initialized.")

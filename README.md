@@ -31,18 +31,33 @@ cp config.example.yml config.yml
 
 编辑 `.env` 填写管理员凭据、JWT 密钥、AI API、代理和 RAG Key。编辑 `config.yml` 调整抓取、调度和翻译策略。各字段说明写在对应的 `.env.example` 和 `config.example.yml` 注释里。
 
+生产环境至少生成以下随机值，并限制配置文件权限：
+
+```bash
+openssl rand -hex 24  # ADMIN_PASSWORD
+openssl rand -hex 32  # JWT_SECRET
+openssl rand -hex 32  # RAG_API_KEY（不用 RAG 时留空）
+chmod 600 .env
+```
+
+应用会拒绝缺失、过短或仍为公开示例值的管理员密码和密钥。更换
+`JWT_SECRET` 会使现有登录令牌失效；更换 `RAG_API_KEY` 后需要同步更新调用方。
+
 ### 3. Docker 部署
 ```bash
 docker-compose up -d --build
 ```
-访问 ```http://你的IP:8000``` 即可开始使用。
+
+Compose 默认只监听 `127.0.0.1:8000`。本机可访问
+`http://127.0.0.1:8000`；远程访问必须通过启用 HTTPS 的反向代理，不要把
+8000 端口直接暴露到公网。
 
 ### 4. 本地运行
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
 pip install -r requirements.txt
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 ```
 
 ### 5. OpenClaw 接入
@@ -84,6 +99,22 @@ curl -H "X-API-Key: ${RAG_API_KEY}" \
 4. **搜索**：搜索框支持中文关键词、中英混合文本、正文命中和搜索态高亮展示。
 5. **调度时间**：RSS 抓取支持 `config.yml` 中配置固定 UTC 时间点；用户画像默认每周一 UTC `00:00` 生成，也可在 `config.yml` 中调整。
 6. **RAG 检索接口**：可通过 `RAG_API_KEY` 保护 `/api/rag/search`，供 OpenClaw 等内部 AI 调用；支持 `category` 过滤，默认按最近 30 天窗口检索，传 `days=0` 可关闭时间窗口。
+
+## 生产安全要求
+
+- 使用 Caddy、Nginx、Traefik 或同类反向代理终止 TLS，并只将 FastAPI
+  监听在回环地址或受保护的容器网络。
+- 防火墙只开放反向代理的 80/443；不要直接开放 8000。
+- 保持 `DISABLE_AUTH=false`，并建议设置 `DISABLE_DOCS=true`。
+- `.env` 必须保持 `0600` 权限，且不要进入 Git、普通语料备份或日志。
+- 登录接口包含适用于默认单进程部署的内存限速。多 worker、多副本部署必须
+  在反向代理或共享存储层增加统一限速。
+- 反向代理场景下，只有在代理来源可信并正确清理转发头时，才能使用真实客户端
+  IP 做限速；不要无条件信任来自公网的 `X-Forwarded-For`。
+- 建议通过主机或云防火墙限制容器出站访问。应用会阻止 RSS 访问回环、私网、
+  链路本地和保留地址，但网络层出口策略仍是防御 DNS 重绑定的必要补充。
+- 定期轮换管理员密码、JWT 密钥、RAG Key 和 AI API Key。轮换后重新登录并更新
+  所有 RAG 客户端。
 
 ## 技术栈
 

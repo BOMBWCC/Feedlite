@@ -32,7 +32,7 @@ CREATE TABLE IF NOT EXISTS articles (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     feed_id INTEGER NOT NULL,
     title TEXT NOT NULL,
-    link TEXT UNIQUE NOT NULL,
+    link TEXT NOT NULL,
     description TEXT,
     content TEXT,
     search_text TEXT DEFAULT '',
@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS articles (
     feedback_updated_at TEXT,
     status TEXT DEFAULT 'active',
     created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now')),
-    FOREIGN KEY (feed_id) REFERENCES feeds (id)
+    FOREIGN KEY (feed_id) REFERENCES feeds (id),
+    UNIQUE (feed_id, link)
 );
 
 -- 索引：提高常用检索性能

@@ -1,7 +1,12 @@
-console.log("🚀 FeedLite JS Starting...");
 
 document.addEventListener('DOMContentLoaded', () => {
     console.log("✅ DOM Content Loaded");
+
+    const {
+        renderPreview,
+        renderSubscriptionList,
+        safeExternalUrl,
+    } = window.FeedLiteSecurity;
 
     const currentUrl = new URL(window.location.href);
     if (currentUrl.searchParams.has('logout')) {
@@ -110,6 +115,14 @@ document.addEventListener('DOMContentLoaded', () => {
         }
 
         lucide.createIcons();
+        // Sync theme-color meta when user or system toggles theme
+        const metaDark = document.querySelector('meta[name="theme-color"][media*="dark"]');
+        const metaLight = document.querySelector('meta[name="theme-color"][media*="light"]');
+        if (isDark && metaLight) {
+            metaLight.content = '#000000';
+        } else if (!isDark && metaDark) {
+            metaDark.content = '#F5F5F5';
+        }
     };
 
     const savedTheme = localStorage.getItem('theme') || 'auto';
@@ -134,14 +147,14 @@ document.addEventListener('DOMContentLoaded', () => {
         const closeBtn = modal.querySelector('.close-modal');
 
         const closeModal = () => {
-            modal.style.display = 'none';
+            modal.classList.remove('visible');
             if (modalId === 'modal-subs') {
                 resetSubsModal();
             }
         };
 
         btn.onclick = () => {
-            modal.style.display = 'block';
+            modal.classList.add('visible');
             if (modalId === 'modal-subs') {
                 const listTab = modal.querySelector('[data-tab="tab-list"]');
                 if (listTab && listTab.classList.contains('active')) {
@@ -164,6 +177,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const categoryText = document.querySelector('#custom-category-dropdown .custom-select-text');
         const categoryOptions = document.querySelectorAll('#custom-category-dropdown .custom-select-options li');
         const confirmAddBtn = document.getElementById('confirm-add-btn');
+        const categoryDropdown = document.getElementById('custom-category-dropdown');
+        const optionsList = document.getElementById('custom-category-options');
 
         if (urlInput) urlInput.value = '';
         if (previewContainer) {
@@ -175,6 +190,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (confirmAddBtn) confirmAddBtn.disabled = false;
         if (categoryText) categoryText.textContent = 'Select Category';
         if (categoryOptions) categoryOptions.forEach(opt => opt.classList.remove('selected'));
+        if (optionsList?.matches(':popover-open')) {
+            categoryDropdown?.classList.remove('open');
+            optionsList.hidePopover();
+        }
         lastPreviewData = null;
 
         document.querySelectorAll('.preview-area').forEach(area => {
@@ -206,16 +225,6 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     // --- Preview & Subscription Management ---
-    const renderPreview = (container, data) => {
-        if (!container) return;
-        container.innerHTML = data.map(item => `
-            <div class="preview-item">
-                <h5>${item.title}</h5>
-                <small>${item.published || ''}</small>
-            </div>
-        `).join('');
-    };
-
     document.addEventListener('click', e => {
         const foldBtn = e.target.closest('.btn-fold');
         if (foldBtn) {
@@ -223,17 +232,40 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 
-    // --- Custom Category Dropdown ---
+    // --- Custom Category Dropdown (Popover API) ---
     const categoryDropdown = document.getElementById('custom-category-dropdown');
     if (categoryDropdown) {
         const trigger = categoryDropdown.querySelector('.custom-select-trigger');
-        const options = categoryDropdown.querySelectorAll('.custom-select-options li');
+        const optionsList = document.getElementById('custom-category-options');
+        const options = optionsList?.querySelectorAll('li') || [];
         const hiddenInput = document.getElementById('new-sub-category');
         const textSpan = categoryDropdown.querySelector('.custom-select-text');
 
+        const positionPopover = () => {
+            const rect = trigger.getBoundingClientRect();
+            optionsList.style.left = rect.left + 'px';
+            optionsList.style.top = (rect.bottom + 6) + 'px';
+            optionsList.style.width = rect.width + 'px';
+        };
+
+        const openPopover = () => {
+            positionPopover();
+            categoryDropdown.classList.add('open');
+            optionsList.showPopover();
+        };
+
+        const closePopover = () => {
+            categoryDropdown.classList.remove('open');
+            optionsList.hidePopover();
+        };
+
         trigger.addEventListener('click', (e) => {
             e.stopPropagation();
-            categoryDropdown.classList.toggle('open');
+            if (optionsList.matches(':popover-open')) {
+                closePopover();
+            } else {
+                openPopover();
+            }
         });
 
         options.forEach(option => {
@@ -243,13 +275,23 @@ document.addEventListener('DOMContentLoaded', () => {
                 hiddenInput.value = option.dataset.value;
                 options.forEach(opt => opt.classList.remove('selected'));
                 option.classList.add('selected');
-                categoryDropdown.classList.remove('open');
+                closePopover();
             });
         });
 
+        // Close on scroll / resize (popover stays visible otherwise)
+        const repositionOrClose = () => {
+            if (optionsList?.matches(':popover-open')) {
+                positionPopover();
+            }
+        };
+        window.addEventListener('scroll', repositionOrClose, { passive: true });
+        window.addEventListener('resize', repositionOrClose, { passive: true });
+
+        // Close on outside click
         document.addEventListener('click', (e) => {
-            if (!categoryDropdown.contains(e.target)) {
-                categoryDropdown.classList.remove('open');
+            if (optionsList?.matches(':popover-open') && !categoryDropdown.contains(e.target)) {
+                closePopover();
             }
         });
     }
@@ -275,7 +317,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById('preview-container').classList.remove('hidden');
                 renderPreview(document.getElementById('preview-container').querySelector('.preview-list'), data.articles);
             } catch (e) {
-                alert('Preview failed: ' + e.message);
+                showToast('Preview failed: ' + e.message, 'error');
             } finally {
                 previewNewBtn.innerHTML = '<i data-lucide="eye"></i>';
                 lucide.createIcons();
@@ -292,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const categorySelect = document.getElementById('new-sub-category');
             if (!url) return;
             if (!categorySelect.value) {
-                alert("Please select a category first!");
+                showToast('Please select a category first!', 'error');
                 return;
             }
 
@@ -305,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 const data = await readApiResponse(res);
                 if (!res.ok) throw new Error(data.detail || 'Failed to add source');
 
-                alert('Source added successfully!');
+                showToast('Source added successfully!', 'success');
                 urlInput.value = '';
                 categorySelect.value = '';
                 document.getElementById('preview-container').classList.add('hidden');
@@ -315,7 +357,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (categoryOptions) categoryOptions.forEach(opt => opt.classList.remove('selected'));
                 lastPreviewData = null;
             } catch (e) {
-                alert('Failed to add: ' + e.message);
+                showToast('Failed to add: ' + e.message, 'error');
             } finally {
                 confirmAddBtn.disabled = false;
                 confirmAddBtn.innerHTML = '<i data-lucide="plus"></i>';
@@ -331,28 +373,14 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const res = await apiFetch('/api/sources/');
             const feeds = await res.json();
-            container.innerHTML = feeds.map(f => {
-                const catIcon = CATEGORY_MAP[f.category]?.icon || 'layers';
-                return `
-                <div class="sub-item-card" data-id="${f.id}">
-                    <div style="display:flex; align-items:center; gap:12px; flex:1; min-width:0;">
-                        <i data-lucide="${catIcon}" style="color:var(--text-muted); flex-shrink:0;"></i>
-                        <div class="sub-item-info">
-                            <span class="sub-name">${f.title || f.url}</span>
-                            <span class="sub-url">${f.url}</span>
-                        </div>
-                    </div>
-                    <div class="sub-item-actions">
-                        <button class="btn-action btn-preview-list-sub" data-url="${f.url}" title="Preview latest content" aria-label="Preview latest content"><i data-lucide="eye"></i></button>
-                        <button class="btn-action btn-delete-sub" title="Delete subscription" aria-label="Delete subscription"><i data-lucide="trash-2"></i></button>
-                    </div>
-                </div>
-                <div id="list-preview-${f.id}" class="preview-area hidden" style="margin-top: -8px; margin-bottom: 12px; background: rgba(0,0,0,0.2); border-radius: 0 0 12px 12px;"></div>
-            `;
-            }).join('');
+            renderSubscriptionList(container, feeds, CATEGORY_MAP);
             lucide.createIcons();
         } catch (e) {
-            container.innerHTML = '<div class="loading-trigger">Failed to load</div>';
+            container.replaceChildren();
+            const errorMessage = document.createElement('div');
+            errorMessage.className = 'loading-trigger';
+            errorMessage.textContent = 'Failed to load';
+            container.appendChild(errorMessage);
         }
     };
 
@@ -371,7 +399,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 document.getElementById(`list-preview-${id}`)?.remove();
             }
         } catch (e) {
-            alert('Delete failed');
+            showToast('Delete failed', 'error');
         }
     });
 
@@ -406,7 +434,7 @@ document.addEventListener('DOMContentLoaded', () => {
             `;
             renderPreview(previewBox.querySelector('.preview-list'), data.articles);
         } catch (err) {
-            alert('Preview failed: ' + err.message);
+            showToast('Preview failed: ' + err.message, 'error');
         } finally {
             previewBtn.innerHTML = '<i data-lucide="chevron-up"></i>';
             lucide.createIcons();
@@ -586,6 +614,10 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         const escapedTitle = escapeAttr(displayTitle);
         const escapedDesc = escapeAttr(rawExcerpt || 'No preview available');
+        const safeArticleUrl = safeExternalUrl(article.link);
+        const articleLinkHtml = safeArticleUrl
+            ? `<a href="${escapeAttr(safeArticleUrl)}" target="_blank" rel="noopener noreferrer" class="dropdown-item" title="View original" aria-label="View original"><i data-lucide="external-link"></i></a>`
+            : '<span class="dropdown-item" title="Invalid article link" aria-label="Invalid article link" aria-disabled="true"><i data-lucide="external-link"></i></span>';
 
         html += `
             <article class="article-card" data-id="${article.id}">
@@ -600,7 +632,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         <div class="action-menu-container">
                             <button class="btn-more-options" title="More options" aria-label="More options"><i data-lucide="more-horizontal"></i></button>
                             <div class="action-dropdown">
-                                <a href="${article.link}" target="_blank" rel="noopener" class="dropdown-item" title="View original" aria-label="View original"><i data-lucide="external-link"></i></a>
+                                ${articleLinkHtml}
                                 <button class="dropdown-item btn-not-interest ${article.feedback === -1 ? 'active' : ''}" data-type="-1" title="Not interested" aria-label="Not interested"><i data-lucide="thumbs-down"></i></button>
                             </div>
                         </div>
@@ -849,7 +881,7 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             await loadArticles(true);
         } catch (e) {
-            alert("Refresh failed. Please check your network or configuration.");
+            showToast('Refresh failed. Please check your network.', 'error');
         } finally {
             logo.style.opacity = '1';
             indicator.classList.remove('active');
@@ -995,6 +1027,20 @@ document.addEventListener('DOMContentLoaded', () => {
             loadProfile();
         };
     }
+
+    // --- Toast Notification ---
+    const showToast = (message, type = 'info', duration = 3000) => {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+        const el = document.createElement('div');
+        el.className = `toast toast-${type}`;
+        el.textContent = message;
+        container.appendChild(el);
+        setTimeout(() => {
+            el.style.animation = 'toastOut 0.25s ease-in forwards';
+            setTimeout(() => el.remove(), 250);
+        }, duration);
+    };
 
     lucide.createIcons();
 });

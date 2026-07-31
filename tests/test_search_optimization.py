@@ -1,4 +1,5 @@
 import tempfile
+import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
@@ -9,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from app.database import Base
 from app.models import Article, Feed
 from app.routers.feeds import search_articles
-from app.services.search_index import build_search_query, build_search_text
+from app.services.search_index import build_search_query, build_search_text, normalize_search_source
 
 
 class SearchOptimizationTestCase(unittest.IsolatedAsyncioTestCase):
@@ -91,6 +92,16 @@ class SearchOptimizationTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertIn("搜索", search_text)
         self.assertIn("正文", search_text)
         self.assertEqual(query.split(), ["openai", "gpt", "5", "4", "中文", "搜索", "中文搜索"])
+
+    def test_unclosed_markup_is_removed_without_quadratic_backtracking(self):
+        hostile = "<" * 32000
+
+        started = time.monotonic()
+        normalized = normalize_search_source(f"before {hostile}")
+        elapsed = time.monotonic() - started
+
+        self.assertEqual(normalized, "before")
+        self.assertLess(elapsed, 0.5)
 
     async def test_search_articles_matches_title_description_and_category(self):
         await self._create_article(

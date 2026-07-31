@@ -86,6 +86,20 @@ class ChunkIndexerTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(payloads[0]["char_count"], 0)
         self.assertGreater(payloads[0]["token_count"], 0)
 
+    def test_chunk_payloads_cap_source_text_and_chunk_count(self):
+        payloads = build_article_chunk_payloads(
+            title="t" * 110000,
+            description="description",
+            content="c" * 30000,
+            published=datetime.now(timezone.utc).isoformat(),
+            chunk_size=100,
+            chunk_overlap=0,
+            min_chunk_size=1,
+        )
+
+        self.assertEqual(len(payloads), 200)
+        self.assertEqual(len(payloads[0]["source_title"]), 100000)
+
     async def test_rebuild_article_chunks_for_article_replaces_existing_chunks(self):
         article_id = await self._create_article(
             title="OpenAI ships new API",

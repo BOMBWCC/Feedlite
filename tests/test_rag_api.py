@@ -302,6 +302,30 @@ class RagApiTestCase(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(visible_payload["count"], 1)
         self.assertEqual(visible_payload["items"][0]["article_status"], "filtered")
 
+    async def test_search_rejects_query_longer_than_512_characters(self):
+        with self.assertRaises(HTTPException) as raised:
+            await search_rag_chunks(
+                q="a" * 513,
+                limit=8,
+                category=None,
+                days=30,
+                include_filtered=False,
+                db=None,
+            )
+
+        self.assertEqual(raised.exception.status_code, 422)
+
+    async def test_context_rejects_more_than_fifty_chunk_ids(self):
+        with self.assertRaises(HTTPException) as raised:
+            await get_rag_context(
+                chunk_ids=list(range(1, 52)),
+                window=1,
+                include_filtered=False,
+                db=None,
+            )
+
+        self.assertEqual(raised.exception.status_code, 422)
+
 
 if __name__ == "__main__":
     unittest.main()

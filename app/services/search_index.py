@@ -8,8 +8,24 @@ import re
 
 import jieba
 
-_TAG_RE = re.compile(r"<.*?>", re.DOTALL)
 _TOKEN_RE = re.compile(r"[a-z0-9]+|[\u4e00-\u9fff]+")
+
+
+def strip_markup(text: str) -> str:
+    """Remove markup in one pass, including unterminated hostile tags."""
+    output: list[str] = []
+    inside_tag = False
+    for character in text or "":
+        if character == "<":
+            inside_tag = True
+            continue
+        if character == ">" and inside_tag:
+            inside_tag = False
+            output.append(" ")
+            continue
+        if not inside_tag:
+            output.append(character)
+    return "".join(output)
 
 
 def _dedupe_preserve_order(tokens: list[str]) -> list[str]:
@@ -27,7 +43,7 @@ def normalize_search_source(text: str) -> str:
     if not text:
         return ""
 
-    cleaned = _TAG_RE.sub(" ", text)
+    cleaned = strip_markup(text)
     cleaned = html_module.unescape(cleaned).lower()
     cleaned = re.sub(r"[^\w\u4e00-\u9fff]+", " ", cleaned)
     return " ".join(cleaned.split())

@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, Text, ForeignKey
+from sqlalchemy import Column, Integer, Text, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone
 from app.database import Base
@@ -28,10 +28,13 @@ class Feed(Base):
 
 class Article(Base):
     __tablename__ = "articles"
+    __table_args__ = (
+        UniqueConstraint("feed_id", "link", name="uq_articles_feed_link"),
+    )
     id = Column(Integer, primary_key=True, index=True)
     feed_id = Column(Integer, ForeignKey("feeds.id"), nullable=False)
     title = Column(Text, nullable=False)
-    link = Column(Text, unique=True, nullable=False)
+    link = Column(Text, nullable=False)
     description = Column(Text)
     content = Column(Text)
     search_text = Column(Text, default="")
